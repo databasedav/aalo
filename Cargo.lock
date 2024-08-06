@@ -9,6 +9,7 @@ dependencies = [
  "bevy",
  "bevy-inspector-egui",
  "haalka",
+ "paste",
  "pretty-type-name",
 ]
 

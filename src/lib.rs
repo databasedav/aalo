@@ -1,14 +1,27 @@
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
+use bevy::prelude::*;
+use haalka::prelude::*;
+
+pub mod inspector;
+pub mod reflect;
+pub mod utils;
+
+fn ui_root(world: &mut World) {
+    El::<NodeBundle>::new()
+        .width(Val::Percent(100.))
+        .height(Val::Percent(100.))
+        .align_content(Align::center())
+        .child(inspector::Inspector::new().align(Align::new().top().left()))
+        .spawn(world);
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub struct AaloPlugin;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+impl Plugin for AaloPlugin {
+    fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<HaalkaPlugin>() {
+            app.add_plugins(HaalkaPlugin);
+        }
+        app.add_plugins(inspector::plugin)
+            .add_systems(Startup, ui_root);
     }
 }
