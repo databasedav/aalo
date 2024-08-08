@@ -1,8 +1,10 @@
 use bevy::prelude::*;
 use haalka::prelude::*;
+use inspector::ENTITIES;
 
 pub mod inspector;
 pub mod reflect;
+pub mod style;
 pub mod utils;
 
 fn ui_root(world: &mut World) {
@@ -10,7 +12,11 @@ fn ui_root(world: &mut World) {
         .width(Val::Percent(100.))
         .height(Val::Percent(100.))
         .align_content(Align::center())
-        .child(inspector::Inspector::new().align(Align::new().top().left()))
+        .child(
+            inspector::EntityInspector::new()
+                .entities(ENTITIES.clone())
+                .align(Align::new().top().left()),
+        )
         .spawn(world);
 }
 

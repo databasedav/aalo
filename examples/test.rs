@@ -41,26 +41,25 @@ struct BoolComponentHolder {
 }
 
 fn ui_root(world: &mut World) {
-    inspector::ENTITIES
-        .entries_cloned()
-        .for_each(|_| {
-            let mut lock = inspector::ENTITIES.lock_mut();
-            let mut remove = vec![];
-            let ui_root_name = Some(Name::new("ui root"));
-            for (&entity, inspector::EntityData { name, expanded }) in lock.iter() {
-                if name == &ui_root_name {
-                    expanded.set_neq(true);
-                } else {
-                    remove.push(entity);
-                }
-            }
-            for ref entity in remove.into_iter().rev() {
-                lock.remove(entity);
-            }
-            async {}
-        })
-        .apply(spawn)
-        .detach();
+    // inspector::ENTITIES
+    //     .entries_cloned()
+    //     .for_each(|_| {
+    //         let mut lock = inspector::ENTITIES.lock_mut();
+    //         let mut remove = vec![];
+    //         for (&entity, inspector::EntityData { name: name_option, expanded, .. }) in lock.iter() {
+    //             if name_option.as_ref().map(|name| *name.lock_ref() == "ui root").unwrap_or(false) {
+    //                 expanded.set_neq(true);
+    //             } else {
+    //                 remove.push(entity);
+    //             }
+    //         }
+    //         for ref entity in remove.into_iter().rev() {
+    //             lock.remove(entity);
+    //         }
+    //         async {}
+    //     })
+    //     .apply(spawn)
+    //     .detach();
     El::<NodeBundle>::new()
         .width(Val::Percent(100.))
         .height(Val::Percent(100.))
