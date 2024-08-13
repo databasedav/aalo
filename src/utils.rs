@@ -4,11 +4,11 @@ macro_rules! impl_syncers {
         paste::paste! {
             impl $struct_name {
                 $(
-                    fn $field(self, $field: $field_ty) -> Self {
+                    pub fn $field(self, $field: $field_ty) -> Self {
                         self.[<$field _signal>](always($field))
                     }
 
-                    fn [<$field _signal>](self, [<$field _signal>]: impl Signal<Item = $field_ty> + Send + 'static) -> Self {
+                    pub fn [<$field _signal>](self, [<$field _signal>]: impl Signal<Item = $field_ty> + Send + 'static) -> Self {
                         let syncer = spawn(sync([<$field _signal>], self.$field.clone()));
                         self.update_raw_el(|raw_el| raw_el.hold_tasks([syncer]))
                     }

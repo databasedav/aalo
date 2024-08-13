@@ -1,11 +1,11 @@
-use std::collections::HashSet;
-
 use aalo::{
-    inspector::{self, EntityData},
+    inspector::{ComponentData, EntityData},
+    widgets::Dropdown,
     AaloPlugin,
 };
 use bevy::prelude::*;
 use haalka::prelude::*;
+use strum::{Display, EnumIter, IntoEnumIterator};
 
 fn main() {
     App::new()
@@ -17,10 +17,39 @@ fn main() {
                 }),
                 ..default()
             }),
-            AaloPlugin,
+            AaloPlugin::new().world().with_inspector(|inspector| {
+                inspector
+                    .with_entities(|entities| {
+                        entities
+                            .filter(|(_, EntityData { name, .. })| {
+                                name.lock_ref().as_ref().map(AsRef::as_ref) == Some("ui root")
+                            })
+                            .map(|data| {
+                                let (_, EntityData { expanded, .. }) = &data;
+                                expanded.set(true);
+                                data
+                            })
+                            .boxed()
+                    })
+                    .with_components(|components| {
+                        components
+                            .filter(|(_, ComponentData { name, .. })| {
+                                // name == "TestEnum"
+                                // name == "BoolComponent"
+                                name == "BoolComponentHolder"
+                            })
+                            .map(|data| {
+                                let (_, ComponentData { expanded, .. }) = &data;
+                                expanded.set(true);
+                                data
+                            })
+                            .boxed()
+                    })
+            }),
         ))
         .register_type::<BoolComponent>()
         .register_type::<BoolComponentHolder>()
+        .register_type::<TestEnum>()
         .add_systems(Startup, (camera, ui_root))
         .run();
 }
@@ -29,7 +58,16 @@ fn camera(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
 }
 
-#[derive(Component, Reflect, Default)]
+#[derive(Clone, PartialEq, Component, Reflect, Default, EnumIter, Display)]
+enum TestEnum {
+    #[default]
+    D,
+    B(f32),
+    A(String),
+    C(BoolComponent),
+}
+
+#[derive(Clone, PartialEq, Component, Reflect, Default)]
 struct BoolComponent(bool, bool);
 
 #[derive(Component, Reflect, Default)]
@@ -40,35 +78,29 @@ struct BoolComponentHolder {
     bool_4: (bool, BoolComponent, Vec<bool>),
 }
 
+fn test_button() -> impl Element {
+    El::<NodeBundle>::new()
+        .width(Val::Px(50.))
+        .height(Val::Px(50.))
+        .cursor(CursorIcon::Pointer)
+        .background_color(BackgroundColor(Color::WHITE))
+        .on_click_with_system(|_: In<_>, mut holder: Query<&mut BoolComponentHolder>| {
+            let mut holder = holder.single_mut();
+            holder.bool_3.push(true);
+        })
+}
+
 fn ui_root(world: &mut World) {
-    // inspector::ENTITIES
-    //     .entries_cloned()
-    //     .for_each(|_| {
-    //         let mut lock = inspector::ENTITIES.lock_mut();
-    //         let mut remove = vec![];
-    //         for (&entity, inspector::EntityData { name: name_option, expanded, .. }) in lock.iter() {
-    //             if name_option.as_ref().map(|name| *name.lock_ref() == "ui root").unwrap_or(false) {
-    //                 expanded.set_neq(true);
-    //             } else {
-    //                 remove.push(entity);
-    //             }
-    //         }
-    //         for ref entity in remove.into_iter().rev() {
-    //             lock.remove(entity);
-    //         }
-    //         async {}
-    //     })
-    //     .apply(spawn)
-    //     .detach();
     El::<NodeBundle>::new()
         .width(Val::Percent(100.))
         .height(Val::Percent(100.))
+        .cursor(CursorIcon::Default)
         .align_content(Align::center())
         .name("ui root")
         .update_raw_el(|raw_el| {
             raw_el
                 .insert(BoolComponent::default())
-                // .insert(BoolComponentHolder::default())
+                .insert(TestEnum::default())
                 .insert(BoolComponentHolder {
                     bool_3: vec![true, false],
                     bool_4: (false, default(), vec![false, true]),
@@ -77,9 +109,11 @@ fn ui_root(world: &mut World) {
         })
         .child(
             Stack::<NodeBundle>::new()
-                .width(Val::Percent(100.))
-                .height(Val::Percent(100.))
-                .name("stuff stack"), // .layer(Checkbox::new(Mutable::new(false)).align(Align::center())),
+                .align(Align::center())
+                .width(Val::Px(100.))
+                .height(Val::Px(100.))
+                .name("stuff stack")
+                .layer(Dropdown::new(TestEnum::iter().map(Into::into).collect::<Vec<_>>().into()))
         )
         .spawn(world);
 }

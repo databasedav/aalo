@@ -10,9 +10,29 @@ pub fn nested_fields_style<E: Element>(
     |el| {
         let row_gap = row_gap.dedupe().broadcast();
         el.apply(column_style(row_gap.signal()))
-            .apply(vertical_padding_style(row_gap.signal()))
             .apply(horizontal_padding_style(padding))
             .apply(left_bordered_style(border_width, border_color))
+    }
+}
+
+pub fn text_style<E: Element>(
+    font_size: impl Signal<Item = f32> + Send + 'static,
+    color: impl Signal<Item = Color> + Send + 'static,
+) -> impl FnOnce(E) -> E {
+    |el| {
+        el.update_raw_el(|raw_el| {
+            raw_el
+                .on_signal_with_component::<_, Text>(font_size.dedupe(), |mut text, font_size| {
+                    if let Some(section) = text.sections.first_mut() {
+                        section.style.font_size = font_size;
+                    }
+                })
+                .on_signal_with_component::<_, Text>(color.dedupe(), |mut text, color| {
+                    if let Some(section) = text.sections.first_mut() {
+                        section.style.color = color;
+                    }
+                })
+        })
     }
 }
 
@@ -139,7 +159,7 @@ pub fn outline_style<E: Element>(
     }
 }
 
-pub fn background_color_style<E: Element>(
+pub fn background_style<E: Element>(
     background_color: impl Signal<Item = Color> + Send + 'static,
 ) -> impl FnOnce(E) -> E {
     |el| {

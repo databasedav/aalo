@@ -3,9 +3,9 @@ name = "aalo"
 version = "0.0.0"
 edition = "2021"
 categories = ["asynchronous", "gui", "game-development"]
-description = "aka bevy-inspector-haalka, a port of bevy-inspector-egui"
+description = "aka bevy-inspector-haalka, a haalka port of bevy-inspector-egui"
 exclude = ["assets/", ".github/", "crates/"]
-keywords = ["ui", "reactive", "signals", "gamedev", "bevy"]
+keywords = ["bevy", "inspector", "ui", "gamedev", "signals"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/databasedav/aalo"
 documentation = "https://docs.rs/aalo"
@@ -18,3 +18,6 @@ paste = "1.0.14"
 nucleo-matcher = "0.3.1"
 
 [dev-dependencies]
+bevy-inspector-egui = "0.25"
+strum = { version = "0.26", features = ["derive"] }
+

@@ -1,14 +1,17 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex},
+};
 
 use bevy::{
     ecs::{
         archetype::Archetypes,
         component::{ComponentId, Components},
-        entity::{self, Entities},
+        entity::Entities,
         system::{SystemId, SystemState},
     },
     prelude::*,
-    reflect::{Access, ParsedPath},
+    reflect::{Access, ParsedPath, ReflectKind, TypeInfo},
 };
 use haalka::prelude::*;
 use nucleo_matcher::{
@@ -16,37 +19,30 @@ use nucleo_matcher::{
     Config, Matcher,
 };
 
-use super::reflect::*;
-use super::style::*;
+use super::{defaults::*, globals::*, reflect::*, style::*, widgets::*};
 use crate::impl_syncers;
 
 // TODO: scrollbars
 // TODO: implement frontend for at least all ui node types
 // TODO: `Name` component syncing
+// TODO: document how to make custom type views
+// TODO: popout windows
+// TODO: drag and drop
+// TODO: window resizing
+// TODO: on hover tooltips
+// TODO: unit struct handling (a tooltip with "unit struct" should suffice)
+// TODO: asset based hot reloadable config
+// TODO: optional limited components viewport within entity
+// TODO: list modification abilities, add, remove, reorder
 
-const DEFAULT_HEIGHT: f32 = 400.;
-const DEFAULT_WIDTH: f32 = 600.;
-const DEFAULT_FONT_SIZE: f32 = 20.;
-const DEFAULT_ROW_GAP: f32 = 5.;
-const DEFAULT_COLUMN_GAP: f32 = 10.;
-const DEFAULT_PADDING: f32 = 10.;
-const DEFAULT_BORDER_RADIUS: f32 = 15.;
-const DEFAULT_BORDER_WIDTH: f32 = 2.;
-
-const DEFAULT_PRIMARY_BACKGROUND_COLOR: Color = Color::srgb(27. / 255., 27. / 255., 27. / 255.);
-const DEFAULT_SECONDARY_BACKGROUND_COLOR: Color = Color::srgb(60. / 255., 60. / 255., 60. / 255.);
-const DEFAULT_HIGHLIGHTED_COLOR: Color = Color::srgb(210. / 255., 210. / 255., 210. / 255.);
-const DEFAULT_UNHIGHLIGHTED_COLOR: Color = Color::srgb(150. / 255., 150. / 255., 150. / 255.);
-const DEFAULT_BORDER_COLOR: Color = Color::srgb(56. / 255., 56. / 255., 56. / 255.);
-
-const DEFAULT_SCROLL_PIXELS: f32 = 20.;
-
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct EntityData {
-    pub name: Option<Mutable<String>>,
+    pub name: Mutable<Option<String>>,
     pub expanded: Mutable<bool>,
     pub filtered: Mutable<bool>,
     pub components: MutableBTreeMap<ComponentId, ComponentData>,
+    components_transformers:
+        Arc<Mutex<Vec<Box<dyn FnMut(ComponentsSignalVec) -> ComponentsSignalVec + Send>>>>,
 }
 
 pub static ENTITIES: Lazy<MutableBTreeMap<Entity, EntityData>> = Lazy::new(default);
@@ -56,12 +52,16 @@ pub struct Search {
     pub fuzzy: Mutable<bool>,
 }
 
+type EntitySignalVec = std::pin::Pin<Box<dyn SignalVec<Item = (Entity, EntityData)> + Send>>;
+type ComponentsSignalVec =
+    std::pin::Pin<Box<dyn SignalVec<Item = (ComponentId, ComponentData)> + Send>>;
+
 /// Configuration frontend for entity inspecting elements.
 pub struct EntityInspector {
     base: Column<NodeBundle>,
-    entities: Option<MutableBTreeMap<Entity, EntityData>>,
-    filter_map:
-        Vec<Box<dyn FnMut((Entity, EntityData)) -> Option<(Entity, EntityData)> + Send + 'static>>,
+    entities: MutableBTreeMap<Entity, EntityData>,
+    entities_transformers: Vec<Box<dyn FnMut(EntitySignalVec) -> EntitySignalVec>>,
+    components_transformers: Vec<Box<dyn FnMut(ComponentsSignalVec) -> ComponentsSignalVec + Send>>,
     search: Option<Search>,
     height: Mutable<f32>,
     width: Mutable<f32>,
@@ -102,11 +102,10 @@ impl ElementWrapper for EntityInspector {
     }
 
     fn into_el(self) -> Self::EL {
-        let Some(entities) = self.entities else {
-            info!("EntityInspector initialized without entities.");
-            return self.base;
-        };
         let Self {
+            entities,
+            entities_transformers,
+            components_transformers,
             search,
             font_size,
             row_gap,
@@ -123,6 +122,7 @@ impl ElementWrapper for EntityInspector {
             unhighlighted_color,
             ..
         } = self;
+        let components_transformers = Arc::new(Mutex::new(components_transformers));
         let mut tasks = vec![];
         if let Some(Search { search, fuzzy }) = search {
             let task = clone!((entities) map_ref! {
@@ -133,8 +133,8 @@ impl ElementWrapper for EntityInspector {
                         let atom = Pattern::new(&search, CaseMatching::Ignore, Normalization::Smart, if fuzzy { nucleo_matcher::pattern::AtomKind::Fuzzy } else { nucleo_matcher::pattern::AtomKind::Substring });
                         for (_, EntityData { name: name_option, filtered, .. }) in entities.lock_ref().iter() {
                             filtered.set_neq(
-                                if let Some(name) = name_option {
-                                    atom.score(nucleo_matcher::Utf32String::from(name.lock_ref().as_str()).slice(..), matcher).is_none()
+                                if let Some(name) = &*name_option.lock_ref() {
+                                    atom.score(nucleo_matcher::Utf32String::from(name.as_str()).slice(..), matcher).is_none()
                                 } else {
                                     true
                                 }
@@ -151,7 +151,7 @@ impl ElementWrapper for EntityInspector {
             .apply(all_padding_style(padding.signal()))
             .apply(border_style(border_width.signal(), border_color.signal()))
             .apply(border_radius_style(border_radius.signal()))
-            .apply(background_color_style(primary_background_color.signal()))
+            .apply(background_style(primary_background_color.signal()))
             .apply(height_style(height.signal()))
             .apply(width_style(width.signal()))
             .cursor(CursorIcon::Default)
@@ -165,109 +165,99 @@ impl ElementWrapper for EntityInspector {
             })
             .items_signal_vec({
                 let mut signal_vec = entities.entries_cloned().boxed();
-                for filter in self.filter_map {
-                    signal_vec = signal_vec.filter_map(filter).boxed();
+                signal_vec = signal_vec
+                    .map(move |mut data| {
+                        data.1.components_transformers = components_transformers.clone();
+                        data
+                    })
+                    .boxed();
+                for mut f in entities_transformers {
+                    signal_vec = f(signal_vec);
                 }
-                signal_vec.map(clone!(
-                    (
-                        font_size,
-                        row_gap,
-                        column_gap,
-                        primary_background_color,
-                        secondary_background_color,
-                        border_color,
-                        border_width,
-                        padding,
-                        highlighted_color,
-                        unhighlighted_color
-                    ) move |(id, data)| {
-                    EntityElement::new(id, data)
-                    .show_name()
-                    .font_size_signal(font_size.signal())
-                    .row_gap_signal(row_gap.signal())
-                    .column_gap_signal(column_gap.signal())
-                    .primary_background_color_signal(primary_background_color.signal())
-                    .secondary_background_color_signal(secondary_background_color.signal())
-                    .border_color_signal(border_color.signal())
-                    .border_width_signal(border_width.signal())
-                    .padding_signal(padding.signal())
-                    .highlighted_color_signal(highlighted_color.signal())
-                    .unhighlighted_color_signal(unhighlighted_color.signal())
-                }))
+                signal_vec
+                    .filter_signal_cloned(|(_, EntityData { filtered, .. })| {
+                        signal::not(filtered.signal())
+                    })
+                    .map(clone!(
+                        (
+                            font_size,
+                            row_gap,
+                            column_gap,
+                            primary_background_color,
+                            secondary_background_color,
+                            border_color,
+                            border_width,
+                            padding,
+                            highlighted_color,
+                            unhighlighted_color
+                        ) move |(id, data)| {
+                        EntityElement::new(id, data)
+                        .show_name()
+                        .font_size_signal(font_size.signal())
+                        .row_gap_signal(row_gap.signal())
+                        .column_gap_signal(column_gap.signal())
+                        .primary_background_color_signal(primary_background_color.signal())
+                        .secondary_background_color_signal(secondary_background_color.signal())
+                        .border_color_signal(border_color.signal())
+                        .border_width_signal(border_width.signal())
+                        .padding_signal(padding.signal())
+                        .highlighted_color_signal(highlighted_color.signal())
+                        .unhighlighted_color_signal(unhighlighted_color.signal())
+                    }))
             })
     }
 }
 
-static GLOBAL_FONT_SIZE: Lazy<Mutable<f32>> = Lazy::new(|| Mutable::new(DEFAULT_FONT_SIZE));
-static GLOBAL_ROW_GAP: Lazy<Mutable<f32>> = Lazy::new(|| Mutable::new(DEFAULT_ROW_GAP));
-static GLOBAL_COLUMN_GAP: Lazy<Mutable<f32>> = Lazy::new(|| Mutable::new(DEFAULT_COLUMN_GAP));
-static GLOBAL_PADDING: Lazy<Mutable<f32>> = Lazy::new(|| Mutable::new(DEFAULT_PADDING));
-static GLOBAL_BORDER_RADIUS: Lazy<Mutable<f32>> = Lazy::new(|| Mutable::new(DEFAULT_BORDER_RADIUS));
-static GLOBAL_BORDER_WIDTH: Lazy<Mutable<f32>> = Lazy::new(|| Mutable::new(DEFAULT_BORDER_WIDTH));
-static GLOBAL_PRIMARY_BACKGROUND_COLOR: Lazy<Mutable<Color>> =
-    Lazy::new(|| Mutable::new(DEFAULT_PRIMARY_BACKGROUND_COLOR));
-static GLOBAL_SECONDARY_BACKGROUND_COLOR: Lazy<Mutable<Color>> =
-    Lazy::new(|| Mutable::new(DEFAULT_SECONDARY_BACKGROUND_COLOR));
-static GLOBAL_HIGHLIGHTED_COLOR: Lazy<Mutable<Color>> =
-    Lazy::new(|| Mutable::new(DEFAULT_HIGHLIGHTED_COLOR));
-static GLOBAL_UNHIGHLIGHTED_COLOR: Lazy<Mutable<Color>> =
-    Lazy::new(|| Mutable::new(DEFAULT_UNHIGHLIGHTED_COLOR));
-static GLOBAL_BORDER_COLOR: Lazy<Mutable<Color>> = Lazy::new(|| Mutable::new(DEFAULT_BORDER_COLOR));
-static GLOBAL_SCROLL_PIXELS: Lazy<Mutable<f32>> = Lazy::new(|| Mutable::new(DEFAULT_SCROLL_PIXELS));
-
 impl EntityInspector {
     pub fn new() -> Self {
-        let entities = None;
-        let filter_map = vec![];
-        let search = None;
-        let height = Mutable::new(DEFAULT_HEIGHT);
-        let width = Mutable::new(DEFAULT_WIDTH);
-        let font_size = GLOBAL_FONT_SIZE.clone();
-        let row_gap = GLOBAL_ROW_GAP.clone();
-        let column_gap = GLOBAL_COLUMN_GAP.clone();
-        let padding = GLOBAL_PADDING.clone();
-        let border_radius = GLOBAL_BORDER_RADIUS.clone();
-        let border_width = GLOBAL_BORDER_WIDTH.clone();
-        let primary_background_color = GLOBAL_PRIMARY_BACKGROUND_COLOR.clone();
-        let secondary_background_color = GLOBAL_SECONDARY_BACKGROUND_COLOR.clone();
-        let highlighted_color = GLOBAL_HIGHLIGHTED_COLOR.clone();
-        let unhighlighted_color = GLOBAL_UNHIGHLIGHTED_COLOR.clone();
-        let border_color = GLOBAL_BORDER_COLOR.clone();
-        let scroll_pixels = GLOBAL_SCROLL_PIXELS.clone();
         Self {
             base: Column::<NodeBundle>::new(),
-            entities,
-            filter_map,
-            search,
-            height,
-            width,
-            font_size,
-            row_gap,
-            column_gap,
-            padding,
-            border_radius,
-            border_width,
-            primary_background_color,
-            secondary_background_color,
-            highlighted_color,
-            unhighlighted_color,
-            border_color,
-            scroll_pixels,
+            entities: MutableBTreeMap::new(),
+            entities_transformers: vec![],
+            components_transformers: vec![],
+            search: None,
+            height: Mutable::new(DEFAULT_HEIGHT),
+            width: Mutable::new(DEFAULT_WIDTH),
+            font_size: GLOBAL_FONT_SIZE.clone(),
+            row_gap: GLOBAL_ROW_GAP.clone(),
+            column_gap: GLOBAL_COLUMN_GAP.clone(),
+            padding: GLOBAL_PADDING.clone(),
+            border_radius: GLOBAL_BORDER_RADIUS.clone(),
+            border_width: GLOBAL_BORDER_WIDTH.clone(),
+            primary_background_color: GLOBAL_PRIMARY_BACKGROUND_COLOR.clone(),
+            secondary_background_color: GLOBAL_SECONDARY_BACKGROUND_COLOR.clone(),
+            highlighted_color: GLOBAL_HIGHLIGHTED_COLOR.clone(),
+            unhighlighted_color: GLOBAL_UNHIGHLIGHTED_COLOR.clone(),
+            border_color: GLOBAL_BORDER_COLOR.clone(),
+            scroll_pixels: GLOBAL_SCROLL_PIXELS.clone(),
         }
     }
 
-    pub fn entities(mut self, entities: MutableBTreeMap<Entity, EntityData>) -> Self {
-        self.entities = Some(entities);
+    pub fn entities(mut self, mut entities: MutableBTreeMap<Entity, EntityData>) -> Self {
+        std::mem::swap(&mut self.entities, &mut entities);
         self
     }
 
-    pub fn filter_map(
+    pub fn with_entities(
         mut self,
-        f: impl FnMut((Entity, EntityData)) -> Option<(Entity, EntityData)> + Send + 'static,
+        f: impl FnMut(EntitySignalVec) -> EntitySignalVec + 'static,
     ) -> Self {
-        self.filter_map.push(Box::new(f));
+        self.entities_transformers.push(Box::new(f));
         self
     }
+
+    pub fn with_components(
+        mut self,
+        f: impl FnMut(ComponentsSignalVec) -> ComponentsSignalVec + Send + 'static,
+    ) -> Self {
+        self.components_transformers.push(Box::new(f));
+        self
+    }
+
+    // TODO: get position of particular field and automatically scroll to it
+    // pub fn jump_to<'p>(entity: &str, component: &str, path: impl ReflectPath<'p>) {
+
+    // }
 
     pub fn search(mut self) -> Self {
         self.search = Some(Search {
@@ -279,8 +269,9 @@ impl EntityInspector {
 }
 
 #[derive(Clone, Default)]
-struct ComponentData {
-    name: String,
+pub struct ComponentData {
+    pub name: String,
+    pub expanded: Mutable<bool>,
     viewable: Mutable<bool>,
 }
 
@@ -301,122 +292,6 @@ struct ComponentsAdded(Vec<ComponentId>);
 
 #[derive(Event)]
 struct ComponentsRemoved(Vec<ComponentId>);
-
-pub struct DynamicText {
-    el: El<TextBundle>,
-    text: Mutable<String>,
-    font: Mutable<Handle<Font>>,
-    font_size: Mutable<f32>,
-    color: Mutable<Color>,
-}
-
-impl_syncers!(DynamicText { text: String, font: Handle<Font>, font_size: f32, color: Color });
-
-impl ElementWrapper for DynamicText {
-    type EL = El<TextBundle>;
-    fn element_mut(&mut self) -> &mut Self::EL {
-        &mut self.el
-    }
-}
-
-impl Cursorable for DynamicText {}
-impl PointerEventAware for DynamicText {}
-
-impl DynamicText {
-    fn new() -> Self {
-        let text = Mutable::new(String::new());
-        let font = Mutable::new(Default::default());
-        let font_size = Mutable::new(DEFAULT_FONT_SIZE);
-        let color = Mutable::new(DEFAULT_UNHIGHLIGHTED_COLOR);
-        let el: El<TextBundle> = El::<TextBundle>::new()
-            .text(Text::from_section(
-                text.get_cloned(),
-                TextStyle {
-                    font: font.get_cloned(),
-                    font_size: font_size.get(),
-                    color: color.get(),
-                },
-            ))
-            .on_signal_with_text(text.signal_cloned().dedupe_cloned(), |mut text, t| {
-                if let Some(section) = text.sections.first_mut() {
-                    section.value = t;
-                }
-            })
-            .on_signal_with_text(font.signal_cloned(), |mut style, font| {
-                if let Some(section) = style.sections.first_mut() {
-                    section.style.font = font;
-                }
-            })
-            .on_signal_with_text(font_size.signal().dedupe(), |mut style, font_size| {
-                if let Some(section) = style.sections.first_mut() {
-                    section.style.font_size = font_size;
-                }
-            })
-            .on_signal_with_text(color.signal().dedupe(), |mut style, color| {
-                if let Some(section) = style.sections.first_mut() {
-                    section.style.color = color;
-                }
-            });
-        Self {
-            el,
-            text,
-            font,
-            font_size,
-            color,
-        }
-    }
-}
-
-pub struct HighlightableText {
-    pub text: DynamicText,
-    highlighted_color: Mutable<Color>,
-    unhighlighted_color: Mutable<Color>,
-    highlighted: Mutable<bool>,
-}
-
-impl_syncers!(HighlightableText {
-    highlighted_color: Color,
-    unhighlighted_color: Color,
-    highlighted: bool
-});
-
-impl ElementWrapper for HighlightableText {
-    type EL = DynamicText;
-    fn element_mut(&mut self) -> &mut Self::EL {
-        &mut self.text
-    }
-}
-
-impl PointerEventAware for HighlightableText {}
-
-impl HighlightableText {
-    fn new() -> Self {
-        let unhighlighted_color = Mutable::new(DEFAULT_UNHIGHLIGHTED_COLOR);
-        let highlighted_color = Mutable::new(DEFAULT_HIGHLIGHTED_COLOR);
-        let hovered = Mutable::new(false);
-        let highlighted = Mutable::new(false);
-        let dynamic_text = DynamicText::new()
-            .color_signal(
-                signal::or(hovered.signal(), highlighted.signal()).map_bool_signal(
-                    clone!((highlighted_color) move || highlighted_color.signal()),
-                    clone!((unhighlighted_color) move || unhighlighted_color.signal()),
-                ),
-            )
-            .cursor(CursorIcon::Pointer)
-            .hovered_sync(hovered);
-        Self {
-            text: dynamic_text,
-            highlighted_color,
-            unhighlighted_color,
-            highlighted,
-        }
-    }
-
-    fn with_text(mut self, f: impl FnOnce(DynamicText) -> DynamicText) -> Self {
-        self.text = f(self.text);
-        self
-    }
-}
 
 struct EntityElement {
     el: Column<NodeBundle>,
@@ -458,6 +333,7 @@ impl ElementWrapper for EntityElement {
 
     fn into_el(self) -> Self::EL {
         let Self {
+            el,
             entity,
             entity_data:
                 EntityData {
@@ -465,6 +341,7 @@ impl ElementWrapper for EntityElement {
                     expanded,
                     filtered,
                     components,
+                    components_transformers,
                 },
             show_name,
             font_size,
@@ -479,7 +356,7 @@ impl ElementWrapper for EntityElement {
             unhighlighted_color,
             ..
         } = self;
-        Column::<NodeBundle>::new()
+        el
         .update_raw_el(clone!((components, expanded) move |raw_el| {
             raw_el
             .observe(clone!((components => components_map) move |event: Trigger<ComponentsAdded>, components: &Components| {
@@ -488,7 +365,7 @@ impl ElementWrapper for EntityElement {
                 for &component in added {
                     if let Some(info) = components.get_info(component) {
                         let name = pretty_type_name::pretty_type_name_str(info.name());
-                        lock.insert_cloned(component, ComponentData { name, viewable: Mutable::new(false) });
+                        lock.insert_cloned(component, ComponentData { name, viewable: Mutable::new(false), expanded: Mutable::new(false) });
                     }
                 }
             }))
@@ -509,7 +386,7 @@ impl ElementWrapper for EntityElement {
             HighlightableText::new()
             .with_text(clone!((font_size) move |text| {
                 text
-                .text_signal(signal::option(name.map(|name| name.signal_cloned())).map_option(move |name| format!("{name} ({entity})"), move || format!("Entity ({entity})")))
+                .text_signal(name.signal_cloned().map_option(move |name| format!("{name} ({entity})"), move || format!("Entity ({entity})")))
                 .font_size_signal(font_size.signal())
             }))
             .highlighted_color_signal(highlighted_color.signal())
@@ -521,13 +398,17 @@ impl ElementWrapper for EntityElement {
                 .apply(column_style(row_gap.signal()))
                 .apply(horizontal_padding_style(padding.signal()))
                 .apply(left_bordered_style(border_width.signal(), border_color.signal()))
-                .items_signal_vec(
-                    components.entries_cloned()
+                .items_signal_vec({
+                    let mut signal_vec = components.entries_cloned().boxed();
+                    for f in components_transformers.lock().unwrap().iter_mut() {
+                        signal_vec = f(signal_vec);
+                    }
+                    signal_vec
                     .map_signal(|(component, data)| {
                         data.viewable.signal().map(move |cur| (component, data.clone(), cur))
                     })
                     .sort_by_cloned(|(_, ComponentData { name: left_name, .. }, left_viewable), (_, ComponentData { name: right_name, .. }, right_viewable)| left_viewable.cmp(right_viewable).reverse().then(left_name.cmp(right_name)))
-                    .map(clone!((row_gap, column_gap, secondary_background_color, border_width, border_color, padding, highlighted_color, unhighlighted_color) move |(component, ComponentData { name, viewable }, _)|
+                    .map(clone!((row_gap, column_gap, secondary_background_color, border_width, border_color, padding, highlighted_color, unhighlighted_color) move |(component, ComponentData { name, expanded, viewable }, _)|
                         FieldElement::new(entity, component, FieldType::Component(name), viewable)
                         .row_gap_signal(row_gap.signal())
                         .column_gap_signal(column_gap.signal())
@@ -537,8 +418,9 @@ impl ElementWrapper for EntityElement {
                         .padding_signal(padding.signal())
                         .highlighted_color_signal(highlighted_color.signal())
                         .unhighlighted_color_signal(unhighlighted_color.signal())
+                        .expanded_signal(expanded.signal())
                     ))
-                )
+                })
         })))
     }
 }
@@ -658,7 +540,10 @@ impl ElementWrapper for FieldElement {
 #[derive(Clone)]
 enum NodeType {
     Solo(String), // type path
-    Multi(MutableVec<AccessFieldData>),
+    Multi {
+        items: MutableVec<AccessFieldData>,
+        size_dynamic: Option<ReflectKind>,
+    },
 }
 
 impl FieldElement {
@@ -706,6 +591,7 @@ impl FieldElement {
                             field_path_option = Some(field_path);
                         },
                     }
+                    // TODO: p sure dynamic container types don't react to changing number of items
                     if let Some(mut reflect) = reflect(world, entity, component) {
                         if let Some(path) = field_path_option {
                             if let Ok(result) = reflect.reflect_path(&path) {
@@ -723,7 +609,7 @@ impl FieldElement {
                                         fields.push(AccessFieldData::new(access));
                                     }
                                 }
-                                node_type.set(Some(NodeType::Multi(fields.into())));
+                                node_type.set(Some(NodeType::Multi { items: fields.into(), size_dynamic: None }));
                                 set_viewable = true;
                             },
                             bevy::reflect::ReflectRef::TupleStruct(tuple_struct) => {
@@ -732,7 +618,7 @@ impl FieldElement {
                                     let access = Access::TupleIndex(i);
                                     fields.push(AccessFieldData::new(access));
                                 }
-                                node_type.set(Some(NodeType::Multi(fields.into())));
+                                node_type.set(Some(NodeType::Multi { items: fields.into(), size_dynamic: None }));
                                 set_viewable = true;
                             },
                             bevy::reflect::ReflectRef::Tuple(tuple) => {
@@ -741,7 +627,7 @@ impl FieldElement {
                                     let access = Access::TupleIndex(i);
                                     fields.push(AccessFieldData::new(access));
                                 }
-                                node_type.set(Some(NodeType::Multi(fields.into())));
+                                node_type.set(Some(NodeType::Multi { items: fields.into(), size_dynamic: None }));
                                 set_viewable = true;
                             },
                             bevy::reflect::ReflectRef::List(list) => {
@@ -750,7 +636,7 @@ impl FieldElement {
                                     let access = Access::ListIndex(i);
                                     fields.push(AccessFieldData::new(access));
                                 }
-                                node_type.set(Some(NodeType::Multi(fields.into())));
+                                node_type.set(Some(NodeType::Multi { items: fields.into(), size_dynamic: Some(ReflectKind::List) }));
                                 set_viewable = true;
                             },
                             bevy::reflect::ReflectRef::Array(array) => {
@@ -759,17 +645,20 @@ impl FieldElement {
                                     let access = Access::ListIndex(i);
                                     fields.push(AccessFieldData::new(access));
                                 }
-                                node_type.set(Some(NodeType::Multi(fields.into())));
+                                node_type.set(Some(NodeType::Multi { items: fields.into(), size_dynamic: None }));
                                 set_viewable = true;
                             },
                             bevy::reflect::ReflectRef::Map(map) => {
-                                // TODO 
+                                // TODO: might require adding map support to Access ?
                             },
                             bevy::reflect::ReflectRef::Enum(enum_) => {
-                                // TODO
+                                // TODO: dropdown of enum variants
+                                if let Some(TypeInfo::Enum(enum_info)) = enum_.get_represented_type_info() {
+                                    println!("{:?}", enum_info.variant_names());
+                                }
                             },
                             bevy::reflect::ReflectRef::Value(value) => {
-                                let type_path = value.reflect_short_type_path();
+                                let type_path = value.reflect_type_path();
                                 node_type.set(Some(NodeType::Solo(type_path.to_string())));
                                 expanded.set_neq(true);
                             },
@@ -841,11 +730,45 @@ impl FieldElement {
                                 }
                                 el_option
                             },
-                            NodeType::Multi(fields) => {
+                            NodeType::Multi { items, size_dynamic } => {
                                 Column::<NodeBundle>::new()
+                                .update_raw_el(clone!((items) move |mut raw_el| {
+                                    if let Some(reflect_kind) = size_dynamic {
+                                        raw_el = raw_el.with_entity(move |mut entity| {
+                                            let handler = entity.world_scope(|world| {
+                                                register_system(world, move |In(reflect): In<Box<dyn Reflect>>| {
+                                                    match reflect.reflect_ref() {
+                                                        bevy::reflect::ReflectRef::List(list) => {
+                                                            let cur = list.len();
+                                                            let len = items.lock_ref().len();
+                                                            let mut lock = items.lock_mut();
+                                                            if cur > len {
+                                                                for i in len..cur {
+                                                                    if let Some(access) = match reflect_kind {
+                                                                        ReflectKind::List => Some(Access::ListIndex(i)),
+                                                                        _ => None,
+                                                                    } {
+                                                                        lock.push_cloned(AccessFieldData::new(access));
+                                                                    }
+                                                                }
+                                                            } else if cur < len {
+                                                                for _ in 0..(len - cur) {
+                                                                    lock.pop();
+                                                                }
+                                                            }
+                                                        }
+                                                        _ => ()
+                                                    }
+                                                })
+                                            });
+                                            entity.insert(FieldListener { handler });
+                                        });
+                                    }
+                                    raw_el
+                                }))
                                 .apply(column_style(row_gap.signal()))
                                 .items_signal_vec(
-                                    fields.signal_vec_cloned()
+                                    items.signal_vec_cloned()
                                     .map(clone!((row_gap, border_width, border_color, padding, highlighted_color, unhighlighted_color, type_path_color) move |AccessFieldData { access, viewable }| {
                                         FieldElement::new(entity, component, FieldType::Access(access.clone()), viewable)
                                         .row_gap_signal(row_gap.signal())
@@ -886,82 +809,20 @@ impl FieldElement {
     }
 }
 
+pub(crate) static CUSTOM_FIELD_FUNCTIONS: Lazy<
+    Vec<Box<dyn Fn(&str) -> Option<AlignabilityFacade> + Send + Sync + 'static>>,
+> = Lazy::new(default);
+
 fn field(type_path: &str) -> Option<impl Element> {
-    match type_path {
-        "bool" => Some(bool_field()),
-        _ => None,
-    }
-}
-
-pub struct Checkbox {
-    el: El<NodeBundle>,
-    size: Mutable<f32>,
-    background_color: Mutable<Color>,
-    highlighted_color: Mutable<Color>,
-    unhighlighted_color: Mutable<Color>,
-    border_radius: Mutable<f32>,
-    hovered: Mutable<bool>,
-    checked: Mutable<bool>,
-}
-
-impl_syncers!(Checkbox {
-    size: f32,
-    background_color: Color,
-    highlighted_color: Color,
-    unhighlighted_color: Color,
-    border_radius: f32,
-    hovered: bool,
-    checked: bool,
-});
-
-// implementing `ElementWrapper` allows the struct to be passed directly to .child methods
-impl ElementWrapper for Checkbox {
-    type EL = El<NodeBundle>;
-    fn element_mut(&mut self) -> &mut Self::EL {
-        &mut self.el
-    }
-}
-
-impl Sizeable for Checkbox {}
-impl PointerEventAware for Checkbox {}
-impl Nameable for Checkbox {}
-
-impl Checkbox {
-    pub fn new() -> Self {
-        let size = GLOBAL_FONT_SIZE.clone();
-        let background_color = GLOBAL_SECONDARY_BACKGROUND_COLOR.clone();
-        let highlighted_color = GLOBAL_HIGHLIGHTED_COLOR.clone();
-        let unhighlighted_color = GLOBAL_UNHIGHLIGHTED_COLOR.clone();
-        let border_radius = Mutable::new(5.);
-        let hovered = Mutable::new(false);
-        let checked = Mutable::new(false);
-        let el = El::<NodeBundle>::new()
-            .align_content(Align::center())
-            .apply(square_style(size.signal()))
-            .apply(border_radius_style(border_radius.signal()))
-            .apply(border_style(always(1.), hovered.signal().map_bool_signal(clone!((highlighted_color) move || highlighted_color.signal()), || GLOBAL_PRIMARY_BACKGROUND_COLOR.signal())))
-            .apply(background_color_style(background_color.signal()))
-            .hovered_sync(hovered.clone())
-            .cursor(CursorIcon::Pointer)
-            .child_signal(
-                checked.signal()
-                .map_true(clone!((size, hovered, highlighted_color, unhighlighted_color, border_radius) move ||
-                    El::<NodeBundle>::new()
-                        .apply(border_radius_style(border_radius.signal().map(|radius| radius * 0.5)))
-                        .apply(square_style(size.signal().map(|size| size * 0.6)))
-                        .apply(background_color_style(hovered.signal().map_bool_signal(clone!((highlighted_color) move || highlighted_color.signal()), clone!((unhighlighted_color) move || unhighlighted_color.signal()))))
-                ))
-            );
-        Self {
-            el,
-            size,
-            background_color,
-            highlighted_color,
-            unhighlighted_color,
-            border_radius,
-            hovered,
-            checked,
+    for f in CUSTOM_FIELD_FUNCTIONS.iter() {
+        if let Some(el) = f(type_path) {
+            return Some(el);
         }
+    }
+    match type_path {
+        "bool" => Some(bool_field().type_erase()),
+        "bevy_ecs::entity::Entity" => Some(entity_field().type_erase()),
+        _ => None,
     }
 }
 
@@ -1005,21 +866,23 @@ fn bool_field() -> impl Element {
     let checked: Mutable<bool> = Mutable::new(false);
     Checkbox::new()
         .checked_signal(checked.signal())
-        .on_click_with_system(clone!((checked) move |In((ui_entity, _)),
+        .on_click_with_system(clone!((checked) move |In((ui_entity, click)): In<(Entity, Pointer<Click>)>,
          accessories: Query<&Accessory>,
          parents: Query<&Parent>,
          sync_components: Query<&SyncComponents>,
          mut field_path_cache: ResMut<FieldPathCache>,
          mut commands: Commands| {
-             if let Ok(Accessory { entity, component, .. }) = accessories.get(ui_entity).cloned() {
-                let field_path = field_path_cached(ui_entity, &accessories, &parents, &sync_components, &mut field_path_cache);
-                commands.add(clone!((checked) move |world: &mut World| {
-                    with_reflect_mut(world, entity, component, |reflect| {
-                        if let Ok(target) = reflect.reflect_path_mut(&field_path) {
-                            let _ = target.try_apply((!checked.get()).as_reflect());
-                        }
-                    });
-                }));
+            if matches!(click.button, PointerButton::Primary) {
+                if let Ok(Accessory { entity, component, .. }) = accessories.get(ui_entity).cloned() {
+                    let field_path = field_path_cached(ui_entity, &accessories, &parents, &sync_components, &mut field_path_cache);
+                    commands.add(clone!((checked) move |world: &mut World| {
+                        with_reflect_mut(world, entity, component, |reflect| {
+                            if let Ok(target) = reflect.reflect_path_mut(&field_path) {
+                                let _ = target.try_apply((!checked.get()).as_reflect());
+                            }
+                        });
+                    }));
+                }
             }
         }))
         .update_raw_el(|raw_el| {
@@ -1034,6 +897,58 @@ fn bool_field() -> impl Element {
                 entity.insert(FieldListener { handler });
             })
         })
+}
+
+fn entity_field() -> impl Element {
+    let font_size = GLOBAL_FONT_SIZE.clone();
+    let row_gap = GLOBAL_ROW_GAP.clone();
+    let column_gap = GLOBAL_COLUMN_GAP.clone();
+    let padding = GLOBAL_PADDING.clone();
+    let border_width = GLOBAL_BORDER_WIDTH.clone();
+    let primary_background_color = GLOBAL_PRIMARY_BACKGROUND_COLOR.clone();
+    let secondary_background_color = GLOBAL_SECONDARY_BACKGROUND_COLOR.clone();
+    let highlighted_color = GLOBAL_HIGHLIGHTED_COLOR.clone();
+    let unhighlighted_color = GLOBAL_UNHIGHLIGHTED_COLOR.clone();
+    let border_color = GLOBAL_BORDER_COLOR.clone();
+    let entity_holder = Mutable::new(None);
+    let entity_data = EntityData::default();
+    let name = entity_data.name.clone();
+    El::<NodeBundle>::new()
+        .update_raw_el(clone!((name, entity_holder) move |raw_el| {
+            raw_el.on_spawn(move |world, entity| {
+                let mut system_state = SystemState::<Query<DebugName>>::new(world);
+                let debug_names = system_state.get(world);
+                if let Some(debug_name) =
+                    debug_names.get(entity).ok().and_then(|name| name.name)
+                {
+                    name.set(Some(debug_name.to_string()));
+                }
+            })
+            .with_entity(move |mut entity| {
+                let handler = entity.world_scope(|world| {
+                    register_system(world, move |In(reflect): In<Box<dyn Reflect>>| {
+                        if let Ok(cur) = reflect.downcast::<Entity>() {
+                            entity_holder.set_neq(Some(*cur));
+                        }
+                    })
+                });
+                entity.insert(FieldListener { handler });
+            })
+        }))
+        .child_signal(entity_holder.signal().map_some(move |entity| {
+            EntityElement::new(entity, entity_data.clone())
+                .show_name()
+                .font_size_signal(font_size.signal())
+                .row_gap_signal(row_gap.signal())
+                .column_gap_signal(column_gap.signal())
+                .primary_background_color_signal(primary_background_color.signal())
+                .secondary_background_color_signal(secondary_background_color.signal())
+                .border_color_signal(border_color.signal())
+                .border_width_signal(border_width.signal())
+                .padding_signal(padding.signal())
+                .highlighted_color_signal(highlighted_color.signal())
+                .unhighlighted_color_signal(unhighlighted_color.signal())
+        }))
 }
 
 #[derive(Component)]
@@ -1167,25 +1082,27 @@ pub(super) fn plugin(app: &mut App) {
         ),
     )
     .init_resource::<FieldPathCache>()
-    .observe(|event: Trigger<EntitiesAdded>, names: Query<DebugName>| {
-        let mut entities = ENTITIES.lock_mut();
-        let EntitiesAdded(added) = event.event();
-        for &entity in added {
-            entities.insert_cloned(
-                entity,
-                EntityData {
-                    name: names
-                        .get(entity)
-                        .ok()
-                        .and_then(|name| name.name)
-                        .map(|name| Mutable::new(name.to_string())),
-                    expanded: Mutable::new(false),
-                    filtered: Mutable::new(false),
-                    components: MutableBTreeMap::new(),
-                },
-            );
-        }
-    })
+    .observe(
+        |event: Trigger<EntitiesAdded>, debug_names: Query<DebugName>| {
+            let mut entities = ENTITIES.lock_mut();
+            let EntitiesAdded(added) = event.event();
+            for &entity in added {
+                entities.insert_cloned(
+                    entity,
+                    EntityData {
+                        name: Mutable::new(
+                            debug_names
+                                .get(entity)
+                                .ok()
+                                .and_then(|name| name.name)
+                                .map(|name| name.to_string()),
+                        ),
+                        ..default()
+                    },
+                );
+            }
+        },
+    )
     .observe(
         |event: Trigger<EntitiesRemoved>, mut field_path_cache: ResMut<FieldPathCache>| {
             let mut entities = ENTITIES.lock_mut();
