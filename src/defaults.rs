@@ -15,5 +15,6 @@ pub const DEFAULT_SECONDARY_BACKGROUND_COLOR: Color =
 pub const DEFAULT_HIGHLIGHTED_COLOR: Color = Color::srgb(210. / 255., 210. / 255., 210. / 255.);
 pub const DEFAULT_UNHIGHLIGHTED_COLOR: Color = Color::srgb(150. / 255., 150. / 255., 150. / 255.);
 pub const DEFAULT_BORDER_COLOR: Color = Color::srgb(56. / 255., 56. / 255., 56. / 255.);
+// pub const DEFAULT_BORDER_COLOR: Color = Color::srgb(0.5019608, 0.0, 0.0);
 
 pub const DEFAULT_SCROLL_PIXELS: f32 = 20.;

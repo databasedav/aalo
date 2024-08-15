@@ -34,8 +34,8 @@ fn main() {
                     .with_components(|components| {
                         components
                             .filter(|(_, ComponentData { name, .. })| {
-                                // name == "TestEnum"
-                                // name == "BoolComponent"
+                                // name == "TestEnum" ||
+                                // name == "BoolComponent"// ||
                                 name == "BoolComponentHolder"
                             })
                             .map(|data| {
@@ -62,8 +62,13 @@ fn camera(mut commands: Commands) {
 enum TestEnum {
     #[default]
     D,
+    Y(bool, bool),
     B(f32),
     A(String),
+    J {
+        a: f32,
+        b: String,
+    },
     C(BoolComponent),
 }
 
@@ -76,6 +81,7 @@ struct BoolComponentHolder {
     bool_2: BoolComponent,
     bool_3: Vec<bool>,
     bool_4: (bool, BoolComponent, Vec<bool>),
+    enum_: TestEnum,
 }
 
 fn test_button() -> impl Element {
@@ -113,7 +119,9 @@ fn ui_root(world: &mut World) {
                 .width(Val::Px(100.))
                 .height(Val::Px(100.))
                 .name("stuff stack")
-                .layer(Dropdown::new(TestEnum::iter().map(Into::into).collect::<Vec<_>>().into()))
+                .layer(Dropdown::new(
+                    TestEnum::iter().map(Into::into).collect::<Vec<_>>().into(),
+                ).default_option_handler()),
         )
         .spawn(world);
 }

@@ -183,18 +183,6 @@ pub fn width_style<E: Sizeable>(
     |el| el.width_signal(width.dedupe().map(Val::Px))
 }
 
-pub fn border_radius_style<E: Element>(
-    border_radius: impl Signal<Item = f32> + Send + 'static,
-) -> impl FnOnce(E) -> E {
-    |el| {
-        el.update_raw_el(|raw_el| {
-            raw_el.component_signal::<BorderRadius, _>(
-                border_radius.dedupe().map(Val::Px).map(BorderRadius::all),
-            )
-        })
-    }
-}
-
 pub fn border_style<E: Element>(
     border_width: impl Signal<Item = f32> + Send + 'static,
     border_color: impl Signal<Item = Color> + Send + 'static,
@@ -207,6 +195,125 @@ pub fn border_style<E: Element>(
                     border_width.dedupe().map(Val::Px).map(UiRect::all),
                     |mut style, width| style.border = width,
                 )
+        })
+    }
+}
+
+pub fn border_color_style<E: Element>(
+    border_color: impl Signal<Item = Color> + Send + 'static,
+) -> impl FnOnce(E) -> E {
+    |el| {
+        el.update_raw_el(|raw_el| {
+            raw_el.component_signal::<BorderColor, _>(border_color.dedupe().map(BorderColor))
+        })
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum BoxEdge {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+impl BoxEdge {
+    pub const ALL: [BoxEdge; 4] = [BoxEdge::Top, BoxEdge::Bottom, BoxEdge::Left, BoxEdge::Right];
+    pub const VERTICAL: [BoxEdge; 2] = [BoxEdge::Top, BoxEdge::Bottom];
+    pub const HORIZONTAL: [BoxEdge; 2] = [BoxEdge::Left, BoxEdge::Right];
+}
+
+#[derive(Clone, Copy)]
+pub enum BoxCorner {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+impl BoxCorner {
+    pub const ALL: [BoxCorner; 4] = [
+        BoxCorner::TopLeft,
+        BoxCorner::TopRight,
+        BoxCorner::BottomLeft,
+        BoxCorner::BottomRight,
+    ];
+    pub const TOP: [BoxCorner; 2] = [BoxCorner::TopLeft, BoxCorner::TopRight];
+    pub const BOTTOM: [BoxCorner; 2] = [BoxCorner::BottomLeft, BoxCorner::BottomRight];
+    pub const LEFT: [BoxCorner; 2] = [BoxCorner::TopLeft, BoxCorner::BottomLeft];
+    pub const RIGHT: [BoxCorner; 2] = [BoxCorner::TopRight, BoxCorner::BottomRight];
+}
+
+pub fn border_width_style<E: Element>(
+    edges: impl IntoIterator<Item = BoxEdge>,
+    border_width: impl Signal<Item = f32> + Send + 'static,
+) -> impl FnOnce(E) -> E {
+    let edges = edges.into_iter().collect::<Vec<_>>();
+    move |el| {
+        el.update_raw_el(|raw_el| {
+            raw_el.on_signal_with_component::<_, Style>(
+                border_width.dedupe().map(Val::Px),
+                move |mut style, border_width| {
+                    let ref mut border = style.border;
+                    for edge in edges.iter() {
+                        match edge {
+                            BoxEdge::Top => border.top = border_width,
+                            BoxEdge::Bottom => border.bottom = border_width,
+                            BoxEdge::Left => border.left = border_width,
+                            BoxEdge::Right => border.right = border_width,
+                        }
+                    }
+                },
+            )
+        })
+    }
+}
+
+pub fn border_radius_style<E: Element>(
+    corners: impl IntoIterator<Item = BoxCorner>,
+    border_radius: impl Signal<Item = f32> + Send + 'static,
+) -> impl FnOnce(E) -> E {
+    let corners = corners.into_iter().collect::<Vec<_>>();
+    move |el| {
+        el.update_raw_el(|raw_el| {
+            raw_el.on_signal_with_component::<_, BorderRadius>(
+                border_radius.dedupe().map(Val::Px),
+                move |mut border_radius, radius| {
+                    for corner in corners.iter() {
+                        match corner {
+                            BoxCorner::TopLeft => border_radius.top_left = radius,
+                            BoxCorner::TopRight => border_radius.top_right = radius,
+                            BoxCorner::BottomLeft => border_radius.bottom_left = radius,
+                            BoxCorner::BottomRight => border_radius.bottom_right = radius,
+                        }
+                    }
+                },
+            )
+        })
+    }
+}
+
+pub fn margin_style<E: Element>(
+    edges: impl IntoIterator<Item = BoxEdge>,
+    margin: impl Signal<Item = f32> + Send + 'static,
+) -> impl FnOnce(E) -> E {
+    let edges = edges.into_iter().collect::<Vec<_>>();
+    move |el| {
+        el.update_raw_el(|raw_el| {
+            raw_el.on_signal_with_component::<_, Style>(
+                margin.dedupe().map(Val::Px),
+                move |mut style, m| {
+                    let ref mut margin = style.margin;
+                    for edge in edges.iter() {
+                        match edge {
+                            BoxEdge::Top => margin.top = m,
+                            BoxEdge::Bottom => margin.bottom = m,
+                            BoxEdge::Left => margin.left = m,
+                            BoxEdge::Right => margin.right = m,
+                        }
+                    }
+                },
+            )
         })
     }
 }

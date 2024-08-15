@@ -1,6 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
-    sync::{Arc, Mutex},
+    collections::{HashMap, HashSet}, i32, sync::{Arc, Mutex}
 };
 
 use bevy::{
@@ -11,7 +10,10 @@ use bevy::{
         system::{SystemId, SystemState},
     },
     prelude::*,
-    reflect::{Access, ParsedPath, ReflectKind, TypeInfo},
+    reflect::{
+        Access, DynamicEnum, DynamicStruct, DynamicTuple, DynamicVariant, ParsedPath, ReflectKind,
+        ReflectMut, ReflectRef, TypeInfo, TypeRegistry, VariantInfo,
+    },
 };
 use haalka::prelude::*;
 use nucleo_matcher::{
@@ -19,7 +21,7 @@ use nucleo_matcher::{
     Config, Matcher,
 };
 
-use super::{defaults::*, globals::*, reflect::*, style::*, widgets::*};
+use super::{defaults::*, globals::*, reflect::*, style::*, utils::*, widgets::*};
 use crate::impl_syncers;
 
 // TODO: scrollbars
@@ -79,22 +81,6 @@ pub struct EntityInspector {
     scroll_pixels: Mutable<f32>,
 }
 
-impl_syncers!(EntityInspector {
-    height: f32,
-    width: f32,
-    font_size: f32,
-    row_gap: f32,
-    column_gap: f32,
-    padding: f32,
-    border_radius: f32,
-    border_width: f32,
-    primary_background_color: Color,
-    highlighted_color: Color,
-    unhighlighted_color: Color,
-    border_color: Color,
-    scroll_pixels: f32,
-});
-
 impl ElementWrapper for EntityInspector {
     type EL = Column<NodeBundle>;
     fn element_mut(&mut self) -> &mut Self::EL {
@@ -150,14 +136,14 @@ impl ElementWrapper for EntityInspector {
             .apply(column_style(row_gap.signal()))
             .apply(all_padding_style(padding.signal()))
             .apply(border_style(border_width.signal(), border_color.signal()))
-            .apply(border_radius_style(border_radius.signal()))
+            .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
             .apply(background_style(primary_background_color.signal()))
             .apply(height_style(height.signal()))
             .apply(width_style(width.signal()))
             .cursor(CursorIcon::Default)
             .scrollable_on_hover(ScrollabilitySettings {
                 flex_direction: FlexDirection::Column,
-                overflow: Overflow::clip_y(),
+                overflow: Overflow::clip(),
                 scroll_handler: BasicScrollHandler::new()
                     .direction(ScrollDirection::Vertical)
                     .pixels_signal(self.scroll_pixels.signal().dedupe())
@@ -266,6 +252,22 @@ impl EntityInspector {
         });
         self
     }
+
+    impl_syncers! {
+        height: f32,
+        width: f32,
+        font_size: f32,
+        row_gap: f32,
+        column_gap: f32,
+        padding: f32,
+        border_radius: f32,
+        border_width: f32,
+        primary_background_color: Color,
+        highlighted_color: Color,
+        unhighlighted_color: Color,
+        border_color: Color,
+        scroll_pixels: f32,
+    }
 }
 
 #[derive(Clone, Default)]
@@ -310,20 +312,6 @@ struct EntityElement {
     unhighlighted_color: Mutable<Color>,
     expanded: Mutable<bool>,
 }
-
-impl_syncers!(EntityElement {
-    font_size: f32,
-    row_gap: f32,
-    column_gap: f32,
-    primary_background_color: Color,
-    secondary_background_color: Color,
-    border_width: f32,
-    border_color: Color,
-    padding: f32,
-    highlighted_color: Color,
-    unhighlighted_color: Color,
-    expanded: bool,
-});
 
 impl ElementWrapper for EntityElement {
     type EL = Column<NodeBundle>;
@@ -460,6 +448,20 @@ impl EntityElement {
         self.show_name = true;
         self
     }
+
+    impl_syncers! {
+        font_size: f32,
+        row_gap: f32,
+        column_gap: f32,
+        primary_background_color: Color,
+        secondary_background_color: Color,
+        border_width: f32,
+        border_color: Color,
+        padding: f32,
+        highlighted_color: Color,
+        unhighlighted_color: Color,
+        expanded: bool,
+    }
 }
 
 struct AccessData {
@@ -518,18 +520,6 @@ struct FieldElement {
     expanded: Mutable<bool>,
 }
 
-impl_syncers!(FieldElement {
-    row_gap: f32,
-    column_gap: f32,
-    border_width: f32,
-    border_color: Color,
-    padding: f32,
-    highlighted_color: Color,
-    unhighlighted_color: Color,
-    type_path_color: Color,
-    expanded: bool,
-});
-
 impl ElementWrapper for FieldElement {
     type EL = Column<NodeBundle>;
     fn element_mut(&mut self) -> &mut Self::EL {
@@ -544,6 +534,12 @@ enum NodeType {
         items: MutableVec<AccessFieldData>,
         size_dynamic: Option<ReflectKind>,
     },
+}
+
+#[derive(Clone)]
+struct EnumData {
+    variants: Vec<&'static str>,
+    initial: usize,
 }
 
 impl FieldElement {
@@ -568,11 +564,12 @@ impl FieldElement {
         };
         let type_path = Mutable::new(None);
         let node_type = Mutable::new(None);
+        let enum_data_option = Mutable::new(None);
         let component_root = matches!(field_type, FieldType::Component(_));
         let el = Column::<NodeBundle>::new()
             .apply(column_style(row_gap.signal()))
             .update_raw_el(|raw_el| {
-                raw_el.on_spawn(clone!((viewable, expanded, node_type, type_path) move |world, ui_entity| {
+                raw_el.on_spawn(clone!((viewable, expanded, node_type, type_path, enum_data_option) move |world, ui_entity| {
                     let mut field_path_option = None;
                     match field_type {
                         FieldType::Component(_) => {
@@ -591,7 +588,6 @@ impl FieldElement {
                             field_path_option = Some(field_path);
                         },
                     }
-                    // TODO: p sure dynamic container types don't react to changing number of items
                     if let Some(mut reflect) = reflect(world, entity, component) {
                         if let Some(path) = field_path_option {
                             if let Ok(result) = reflect.reflect_path(&path) {
@@ -601,7 +597,7 @@ impl FieldElement {
                         type_path.set(Some(reflect.reflect_type_path().to_string()));
                         let mut set_viewable = false;
                         match reflect.reflect_ref() {
-                            bevy::reflect::ReflectRef::Struct(struct_) => {
+                            ReflectRef::Struct(struct_) => {
                                 let mut fields = vec![];
                                 for i in 0..struct_.field_len() {
                                     if let Some(name) = struct_.name_at(i) {
@@ -612,7 +608,7 @@ impl FieldElement {
                                 node_type.set(Some(NodeType::Multi { items: fields.into(), size_dynamic: None }));
                                 set_viewable = true;
                             },
-                            bevy::reflect::ReflectRef::TupleStruct(tuple_struct) => {
+                            ReflectRef::TupleStruct(tuple_struct) => {
                                 let mut fields = vec![];
                                 for i in 0..tuple_struct.field_len() {
                                     let access = Access::TupleIndex(i);
@@ -621,7 +617,7 @@ impl FieldElement {
                                 node_type.set(Some(NodeType::Multi { items: fields.into(), size_dynamic: None }));
                                 set_viewable = true;
                             },
-                            bevy::reflect::ReflectRef::Tuple(tuple) => {
+                            ReflectRef::Tuple(tuple) => {
                                 let mut fields = vec![];
                                 for i in 0..tuple.field_len() {
                                     let access = Access::TupleIndex(i);
@@ -630,7 +626,7 @@ impl FieldElement {
                                 node_type.set(Some(NodeType::Multi { items: fields.into(), size_dynamic: None }));
                                 set_viewable = true;
                             },
-                            bevy::reflect::ReflectRef::List(list) => {
+                            ReflectRef::List(list) => {
                                 let mut fields = vec![];
                                 for i in 0..list.len() {
                                     let access = Access::ListIndex(i);
@@ -639,7 +635,7 @@ impl FieldElement {
                                 node_type.set(Some(NodeType::Multi { items: fields.into(), size_dynamic: Some(ReflectKind::List) }));
                                 set_viewable = true;
                             },
-                            bevy::reflect::ReflectRef::Array(array) => {
+                            ReflectRef::Array(array) => {
                                 let mut fields = vec![];
                                 for i in 0..array.len() {
                                     let access = Access::ListIndex(i);
@@ -648,16 +644,21 @@ impl FieldElement {
                                 node_type.set(Some(NodeType::Multi { items: fields.into(), size_dynamic: None }));
                                 set_viewable = true;
                             },
-                            bevy::reflect::ReflectRef::Map(map) => {
+                            ReflectRef::Map(map) => {
                                 // TODO: might require adding map support to Access ?
                             },
-                            bevy::reflect::ReflectRef::Enum(enum_) => {
-                                // TODO: dropdown of enum variants
+                            ReflectRef::Enum(enum_) => {
                                 if let Some(TypeInfo::Enum(enum_info)) = enum_.get_represented_type_info() {
-                                    println!("{:?}", enum_info.variant_names());
+                                    enum_data_option.set(Some(
+                                        EnumData {
+                                            variants: enum_info.variant_names().into_iter().map(std::ops::Deref::deref).collect::<Vec<_>>(),
+                                            initial: enum_.variant_index()
+                                        }
+                                    ));
+                                    set_viewable = true;
                                 }
                             },
-                            bevy::reflect::ReflectRef::Value(value) => {
+                            ReflectRef::Value(value) => {
                                 let type_path = value.reflect_type_path();
                                 node_type.set(Some(NodeType::Solo(type_path.to_string())));
                                 expanded.set_neq(true);
@@ -673,6 +674,7 @@ impl FieldElement {
             .item({
                 let hovered = Mutable::new(false);
                 Row::<NodeBundle>::new()
+                .width(Val::Percent(100.))
                 .with_style(|mut style| style.width = Val::Percent(100.))
                 .apply(row_style(column_gap.signal()))
                 .on_click(clone!((expanded, viewable) move || {
@@ -717,10 +719,107 @@ impl FieldElement {
                 )
             })
             .item_signal(expanded.signal().map_true(
-                clone!((row_gap, border_width, border_color, padding, highlighted_color, unhighlighted_color, type_path_color, viewable) move || {
-                    El::<NodeBundle>::new()
+                clone!((
+                    row_gap,
+                    border_width,
+                    border_color,
+                    padding,
+                    highlighted_color,
+                    unhighlighted_color,
+                    type_path_color,
+                    viewable,
+                    enum_data_option
+                ) move || {
+                    Column::<NodeBundle>::new()
                     .apply(nested_fields_style(row_gap.signal(), padding.signal(), border_width.signal(), border_color.signal()))
-                    .child_signal(
+                    .apply(column_style(row_gap.signal()))
+                    .item_signal(
+                        enum_data_option.signal_cloned()
+                        .map_some(clone!((access_option, node_type) move |EnumData { variants, initial }| {
+                            let options = variants.into_iter().map(Into::into).collect::<Vec<_>>().into();
+                            let selected = Mutable::new(Some(initial));
+                            let show_dropdown = Mutable::new(false);
+                            let dropdown_entity = Mutable::new(None);
+                            Dropdown::new(options)
+                            .height(Val::Percent(100.))
+                            .with_show_dropdown(show_dropdown.clone())
+                            .update_raw_el(clone!((access_option, selected, dropdown_entity) move |raw_el| {
+                                raw_el
+                                .insert(Accessory { entity, component, access_option })
+                                .with_entity(clone!((selected) move |mut entity| {
+                                    dropdown_entity.set_neq(Some(entity.id()));
+                                    let handler = entity.world_scope(move |world| {
+                                        register_system(world, clone!((selected) move |In(reflect): In<Box<dyn Reflect>>| {
+                                            if let ReflectRef::Enum(enum_) = reflect.reflect_ref() {
+                                                selected.set_neq(Some(enum_.variant_index()));
+                                            }
+                                        }))
+                                    });
+                                    entity.insert(FieldListener { handler });
+                                }))
+                            }))
+                            .width(Val::Percent(60.))
+                            .selected_signal(selected.signal())
+                            // TODO: this should just take a system instead
+                            .option_handler_system(clone!((node_type) move |
+                                In(i),
+                                accessories: Query<&Accessory>,
+                                parents: Query<&Parent>,
+                                sync_components: Query<&SyncComponents>,
+                                mut field_path_cache: ResMut<FieldPathCache>,
+                                type_registry: Res<AppTypeRegistry>,
+                                mut commands: Commands| {
+                                    let ui_entity = dropdown_entity.get().unwrap();
+                                    if let Ok(Accessory { entity, component, .. }) = accessories.get(ui_entity).cloned() {
+                                        let field_path = field_path_cached(ui_entity, &accessories, &parents, &sync_components, &mut field_path_cache);
+                                        let type_registry = type_registry.0.clone();
+                                        commands.add(clone!((node_type) move |world: &mut World| {
+                                            with_reflect_mut(world, entity, component, |reflect| {
+                                                if let Ok(target) = reflect.reflect_path_mut(&field_path) {
+                                                    if let ReflectMut::Enum(enum_) = target.reflect_mut() {
+                                                        if let Some(TypeInfo::Enum(enum_info)) = enum_.get_represented_type_info() {
+                                                            if let Some(variant_info) = enum_info.variant_at(i) {
+                                                                match variant_info {
+                                                                    VariantInfo::Struct(struct_info) => {
+                                                                        let mut fields = vec![];
+                                                                        for i in 0..struct_info.field_len() {
+                                                                            if let Some(name) = struct_info.field_at(i).map(|field| field.name()) {
+                                                                                let access = Access::Field(name.to_string().into());
+                                                                                fields.push(AccessFieldData::new(access));
+                                                                            }
+                                                                        }
+                                                                        node_type.set(Some(NodeType::Multi { items: fields.into(), size_dynamic: None }));
+                                                                    },
+                                                                    VariantInfo::Tuple(tuple_info) => {
+                                                                        let mut fields = vec![];
+                                                                        for i in 0..tuple_info.field_len() {
+                                                                            let access = Access::TupleIndex(i);
+                                                                            fields.push(AccessFieldData::new(access));
+                                                                        }
+                                                                        node_type.set(Some(NodeType::Multi { items: fields.into(), size_dynamic: None }));
+                                                                    },
+                                                                    VariantInfo::Unit(_) => {
+                                                                        // TODO: unit enum indicator
+                                                                        node_type.take();
+                                                                    },
+                                                                }
+                                                                if let Some(default) = variant_default_value(variant_info, &type_registry.read()) {
+                                                                    target.apply(&default);
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            });
+                                        }));
+                                    }
+                                    show_dropdown.set_neq(false);
+                            }))
+                            .into_el()
+                            .z_index(ZIndex::Local(i32::MAX))
+                        }))
+                    )
+                    .item_signal(
                         node_type.signal_cloned()
                         .map_some(clone!((row_gap, border_width, border_color, padding, highlighted_color, unhighlighted_color, type_path_color, viewable) move |node_type| match node_type {
                             NodeType::Solo(type_path) => {
@@ -746,6 +845,8 @@ impl FieldElement {
                                                                 for i in len..cur {
                                                                     if let Some(access) = match reflect_kind {
                                                                         ReflectKind::List => Some(Access::ListIndex(i)),
+                                                                        // TODO
+                                                                        // ReflectKind::Map => Some(...),
                                                                         _ => None,
                                                                     } {
                                                                         lock.push_cloned(AccessFieldData::new(access));
@@ -786,9 +887,7 @@ impl FieldElement {
                         }))
                         .map(Option::flatten)
                         .map(clone!((access_option) move |mut el_option| {
-                            if let Some(access) = access_option.clone() {
-                                el_option = el_option.map(|el| el.update_raw_el(|raw_el| raw_el.insert(Accessory { entity, component, access })))
-                            }
+                            el_option = el_option.map(clone!((access_option) move |el| el.update_raw_el(|raw_el| raw_el.insert(Accessory { entity, component, access_option }))));
                             el_option
                         }))
                     )
@@ -806,6 +905,18 @@ impl FieldElement {
             type_path_color,
             expanded,
         }
+    }
+
+    impl_syncers! {
+        row_gap: f32,
+        column_gap: f32,
+        border_width: f32,
+        border_color: Color,
+        padding: f32,
+        highlighted_color: Color,
+        unhighlighted_color: Color,
+        type_path_color: Color,
+        expanded: bool,
     }
 }
 
@@ -834,8 +945,10 @@ fn field_path(
 ) -> ParsedPath {
     let mut path = vec![];
     for parent in [entity].into_iter().chain(parents.iter_ancestors(entity)) {
-        if let Ok(accessory) = accessories.get(parent) {
-            path.push(accessory.access.clone());
+        if let Ok(Accessory { access_option, .. }) = accessories.get(parent) {
+            if let Some(access) = access_option {
+                path.push(access.clone());
+            }
         }
         // marks entity root
         if sync_components.contains(parent) {
@@ -859,6 +972,41 @@ fn field_path_cached(
         let field_path = field_path(entity, accessories, parents, sync_components);
         field_path_cache.0.insert(entity, field_path.clone());
         field_path
+    }
+}
+
+// adapted from Quill https://github.com/viridia/quill/blob/cecbc35426a095f56bad1f12df546f5a79dece32/crates/bevy_quill_obsidian_inspect/src/inspectors/enum.rs#L171
+fn variant_default_value(variant: &VariantInfo, registry: &TypeRegistry) -> Option<DynamicEnum> {
+    match variant {
+        bevy::reflect::VariantInfo::Struct(struct_) => {
+            let mut dynamic_struct = DynamicStruct::default();
+            for field in struct_.iter() {
+                if let Some(field_type_default) =
+                    registry.get_type_data::<ReflectDefault>(field.type_id())
+                {
+                    dynamic_struct.insert_boxed(field.name(), field_type_default.default());
+                } else {
+                    return None;
+                }
+            }
+            Some(DynamicEnum::new(variant.name(), dynamic_struct))
+        }
+        bevy::reflect::VariantInfo::Tuple(tpl) => {
+            let mut dynamic_tuple = DynamicTuple::default();
+            for field in tpl.iter() {
+                if let Some(field_type_default) =
+                    registry.get_type_data::<ReflectDefault>(field.type_id())
+                {
+                    dynamic_tuple.insert_boxed(field_type_default.default());
+                } else {
+                    return None;
+                }
+            }
+            Some(DynamicEnum::new(variant.name(), dynamic_tuple))
+        }
+        bevy::reflect::VariantInfo::Unit(_) => {
+            Some(DynamicEnum::new(variant.name(), DynamicVariant::Unit))
+        }
     }
 }
 
@@ -951,20 +1099,6 @@ fn entity_field() -> impl Element {
         }))
 }
 
-#[derive(Component)]
-pub struct AaloOneShotSystem;
-
-pub fn register_system<I: 'static, O: 'static, M, S: IntoSystem<I, O, M> + 'static>(
-    world: &mut World,
-    system: S,
-) -> SystemId<I, O> {
-    let system = world.register_system(system);
-    if let Some(mut entity) = world.get_entity_mut(system.entity()) {
-        entity.insert(AaloOneShotSystem);
-    }
-    system
-}
-
 #[derive(Component, Clone)]
 struct FieldListener {
     handler: SystemId<Box<dyn Reflect>>,
@@ -974,7 +1108,7 @@ struct FieldListener {
 struct Accessory {
     entity: Entity,
     component: ComponentId,
-    access: Access<'static>,
+    access_option: Option<Access<'static>>,
 }
 
 fn entity_syncer(
