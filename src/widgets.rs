@@ -30,8 +30,8 @@ impl DynamicText {
     pub fn new() -> Self {
         let text = Mutable::new(String::new());
         let font = Mutable::new(Default::default());
-        let font_size = Mutable::new(DEFAULT_FONT_SIZE);
-        let color = Mutable::new(DEFAULT_UNHIGHLIGHTED_COLOR);
+        let font_size = GLOBAL_FONT_SIZE.clone();
+        let color = GLOBAL_UNHIGHLIGHTED_COLOR.clone();
         let el: El<TextBundle> = El::<TextBundle>::new()
             .text(Text::from_section(
                 text.get_cloned(),
@@ -82,8 +82,8 @@ impl PointerEventAware for HighlightableText {}
 
 impl HighlightableText {
     pub fn new() -> Self {
-        let unhighlighted_color = Mutable::new(DEFAULT_UNHIGHLIGHTED_COLOR);
-        let highlighted_color = Mutable::new(DEFAULT_HIGHLIGHTED_COLOR);
+        let unhighlighted_color = GLOBAL_UNHIGHLIGHTED_COLOR.clone();
+        let highlighted_color = GLOBAL_HIGHLIGHTED_COLOR.clone();
         let hovered = Mutable::new(false);
         let highlighted = Mutable::new(false);
         let dynamic_text = DynamicText::new()
@@ -137,20 +137,23 @@ impl Sizeable for Checkbox {}
 impl PointerEventAware for Checkbox {}
 impl Nameable for Checkbox {}
 
+const CHECKBOX_BORDER_RADIUS_MODIFIER: f32 = 0.333;
+
 impl Checkbox {
     pub fn new() -> Self {
         let size = GLOBAL_FONT_SIZE.clone();
         let background_color = GLOBAL_SECONDARY_BACKGROUND_COLOR.clone();
         let highlighted_color = GLOBAL_HIGHLIGHTED_COLOR.clone();
         let unhighlighted_color = GLOBAL_UNHIGHLIGHTED_COLOR.clone();
-        let border_radius = Mutable::new(5.);
+        let border_radius_base = GLOBAL_BORDER_RADIUS.get() * CHECKBOX_BORDER_RADIUS_MODIFIER;
+        let border_radius = Mutable::new(border_radius_base);
         let hovered = Mutable::new(false);
         let checked = Mutable::new(false);
         let el = El::<NodeBundle>::new()
             .align_content(Align::center())
             .apply(square_style(size.signal()))
             .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
-            .apply(border_style(always(1.), hovered.signal().map_bool_signal(clone!((highlighted_color) move || highlighted_color.signal()), || GLOBAL_PRIMARY_BACKGROUND_COLOR.signal())))
+            .apply(border_style(border_radius.signal().map(move |border_radius| border_radius / border_radius_base), hovered.signal().map_bool_signal(clone!((highlighted_color) move || highlighted_color.signal()), || GLOBAL_PRIMARY_BACKGROUND_COLOR.signal())))
             .apply(background_style(background_color.signal()))
             .hovered_sync(hovered.clone())
             .cursor(CursorIcon::Pointer)
@@ -430,7 +433,7 @@ impl<T> Dropdown<T> {
         self.option_handler_system(move |In(i)| option_handler(i))
     }
 
-    pub fn default_option_handler(self) -> Self
+    pub fn basic_option_handler(self) -> Self
     where
         Self: ElementWrapper,
     {
@@ -441,3 +444,13 @@ impl<T> Dropdown<T> {
         self.option_handler(f)
     }
 }
+
+
+// pub fn resize_border<E: Element>(
+//     width: impl Signal<Item = f32> + Send + Sync + 'static,
+//     radius: impl Signal<Item = f32> + Send + Sync + 'static,
+//     unhighlighted_color: impl Signal<Item = Color> + Send + Sync + 'static,
+//     highlighted_color: impl Signal<Item = Color> + Send + Sync + 'static,
+// ) -> impl Element {
+//     Stack::<NodeBundle>::new()
+// }

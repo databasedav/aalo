@@ -1,5 +1,6 @@
 use aalo::{
     inspector::{ComponentData, EntityData},
+    style::{border_color_style, border_width_style, BoxEdge},
     widgets::Dropdown,
     AaloPlugin,
 };
@@ -17,35 +18,39 @@ fn main() {
                 }),
                 ..default()
             }),
-            AaloPlugin::new().world().with_inspector(|inspector| {
-                inspector
-                    .with_entities(|entities| {
-                        entities
-                            .filter(|(_, EntityData { name, .. })| {
-                                name.lock_ref().as_ref().map(AsRef::as_ref) == Some("ui root")
-                            })
-                            .map(|data| {
-                                let (_, EntityData { expanded, .. }) = &data;
-                                expanded.set(true);
-                                data
-                            })
-                            .boxed()
-                    })
-                    .with_components(|components| {
-                        components
-                            .filter(|(_, ComponentData { name, .. })| {
-                                // name == "TestEnum" ||
-                                // name == "BoolComponent"// ||
-                                name == "BoolComponentHolder"
-                            })
-                            .map(|data| {
-                                let (_, ComponentData { expanded, .. }) = &data;
-                                expanded.set(true);
-                                data
-                            })
-                            .boxed()
-                    })
-            }),
+            HaalkaPlugin,
+            AaloPlugin::new().world()
+            // .with_inspector(|inspector| {
+            //     inspector
+            //         .with_entities(|entities| {
+            //             entities
+            //                 .filter(|(_, EntityData { name, .. })| {
+            //                     name.lock_ref().as_ref().map(AsRef::as_ref) == Some("ui root")
+            //                 })
+            //                 .map(|data| {
+            //                     let (_, EntityData { expanded, .. }) = &data;
+            //                     expanded.set(true);
+            //                     data
+            //                 })
+            //                 .boxed()
+            //         })
+            //         .with_components(|components| {
+            //             components
+            //                 .filter(|(_, ComponentData { name, .. })| {
+            //                     name == "TestEnum"
+            //                     // ||
+            //                     // name == "BoolComponent"
+            //                     // ||
+            //                     // name == "BoolComponentHolder"
+            //                 })
+            //                 .map(|data| {
+            //                     let (_, ComponentData { expanded, .. }) = &data;
+            //                     expanded.set(true);
+            //                     data
+            //                 })
+            //                 .boxed()
+            //         })
+            // }),
         ))
         .register_type::<BoolComponent>()
         .register_type::<BoolComponentHolder>()
@@ -73,6 +78,7 @@ enum TestEnum {
 }
 
 #[derive(Clone, PartialEq, Component, Reflect, Default)]
+#[reflect(Default)]
 struct BoolComponent(bool, bool);
 
 #[derive(Component, Reflect, Default)]
@@ -113,15 +119,49 @@ fn ui_root(world: &mut World) {
                     ..default()
                 })
         })
-        .child(
+        .child({
+            let hovered = Mutable::new(false);
             Stack::<NodeBundle>::new()
                 .align(Align::center())
                 .width(Val::Px(100.))
                 .height(Val::Px(100.))
                 .name("stuff stack")
-                .layer(Dropdown::new(
-                    TestEnum::iter().map(Into::into).collect::<Vec<_>>().into(),
-                ).default_option_handler()),
-        )
+                // .layer(
+                //     El::<NodeBundle>::new()
+                //         .height(Val::Px(100.))
+                //         .width(Val::Px(100.))
+                //         .border_radius(BorderRadius::all(Val::Px(10.)))
+                //         .apply(border_width_style(BoxEdge::ALL, always(5.)))
+                //         .apply(border_color_style(always(
+                //             bevy::color::palettes::basic::MAROON.into(),
+                //         ))),
+                // )
+                // .layer(
+                //     El::<NodeBundle>::new()
+                //         .height(Val::Px(100.))
+                //         .width(Val::Px(100.))
+                //         .border_radius(BorderRadius::all(Val::Px(10.)))
+                //         .apply(border_width_style(BoxEdge::HORIZONTAL, hovered.signal().map_false(|| 5.).map(Option::unwrap_or_default)))
+                //         .apply(border_color_style(always(
+                //             bevy::color::palettes::basic::LIME.into(),
+                //         ))),
+                // )
+                // .layer(
+                //     El::<NodeBundle>::new()
+                //         .with_style(|mut style| style.left = Val::Px(2.))
+                //         .hovered_sync(hovered)
+                //         .cursor(CursorIcon::EResize)
+                //         .height(Val::Px(100.))
+                //         .width(Val::Px(9.))
+                //         .align(Align::new().right())
+                //         .border_radius(BorderRadius::all(Val::Px(10.)))
+                //         .apply(border_width_style(BoxEdge::HORIZONTAL, always(5.)))
+                //         .apply(border_color_style(always(Color::NONE)))
+                // )
+                .layer(
+                    Dropdown::new(TestEnum::iter().map(Into::into).collect::<Vec<_>>().into())
+                        .basic_option_handler(),
+                )
+        })
         .spawn(world);
 }

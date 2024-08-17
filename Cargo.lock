@@ -414,7 +414,8 @@ dependencies = [
 [[package]]
 name = "bevy-async-ecs"
 version = "0.6.0"
-source = "git+https://github.com/databasedav/bevy-async-ecs?branch=0.14#39a2b673ade4bc0e62f48317b8d2c0dba75db0a0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74f1f2358522404093f7761b2c8f2fec7e347168cfc0bb1affd186baf019ab88"
 dependencies = [
  "async-channel",
  "async-lock",
@@ -650,7 +651,7 @@ dependencies = [
 [[package]]
 name = "bevy_cosmic_edit"
 version = "0.22.0"
-source = "git+https://github.com/databasedav/bevy_cosmic_edit?branch=fix_space#b8e3d2e0034efb232a2a9e3aaa95870700775ff9"
+source = "git+https://github.com/Dimchikkk/bevy_cosmic_edit?branch=main#3778ff56a89eb20036114c843a20d7a56748d4b9"
 dependencies = [
  "arboard",
  "bevy",

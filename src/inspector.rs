@@ -1,5 +1,7 @@
 use std::{
-    collections::{HashMap, HashSet}, i32, sync::{Arc, Mutex}
+    collections::{HashMap, HashSet},
+    i32,
+    sync::{Arc, Mutex},
 };
 
 use bevy::{
@@ -177,6 +179,7 @@ impl ElementWrapper for EntityInspector {
                             highlighted_color,
                             unhighlighted_color
                         ) move |(id, data)| {
+                            println!("here0");
                         EntityElement::new(id, data)
                         .show_name()
                         .font_size_signal(font_size.signal())
@@ -313,6 +316,57 @@ struct EntityElement {
     expanded: Mutable<bool>,
 }
 
+impl EntityElement {
+    impl_syncers! {
+        font_size: f32,
+        row_gap: f32,
+        column_gap: f32,
+        primary_background_color: Color,
+        secondary_background_color: Color,
+        border_width: f32,
+        border_color: Color,
+        padding: f32,
+        highlighted_color: Color,
+        unhighlighted_color: Color,
+        expanded: bool,
+    }
+
+    fn new(entity: Entity, entity_data: EntityData) -> Self {
+        let font_size = GLOBAL_FONT_SIZE.clone();
+        let row_gap = GLOBAL_ROW_GAP.clone();
+        let column_gap = GLOBAL_COLUMN_GAP.clone();
+        let primary_background_color = GLOBAL_PRIMARY_BACKGROUND_COLOR.clone();
+        let secondary_background_color = GLOBAL_SECONDARY_BACKGROUND_COLOR.clone();
+        let border_width = GLOBAL_BORDER_WIDTH.clone();
+        let border_color = GLOBAL_BORDER_COLOR.clone();
+        let padding = GLOBAL_PADDING.clone();
+        let highlighted_color = GLOBAL_HIGHLIGHTED_COLOR.clone();
+        let unhighlighted_color = GLOBAL_UNHIGHLIGHTED_COLOR.clone();
+        Self {
+            el: Column::<NodeBundle>::new(),
+            expanded: entity_data.expanded.clone(),
+            entity,
+            entity_data,
+            show_name: false,
+            font_size,
+            row_gap,
+            column_gap,
+            primary_background_color,
+            secondary_background_color,
+            border_width,
+            border_color,
+            padding,
+            highlighted_color,
+            unhighlighted_color,
+        }
+    }
+
+    fn show_name(mut self) -> Self {
+        self.show_name = true;
+        self
+    }
+}
+
 impl ElementWrapper for EntityElement {
     type EL = Column<NodeBundle>;
     fn element_mut(&mut self) -> &mut Self::EL {
@@ -396,7 +450,8 @@ impl ElementWrapper for EntityElement {
                         data.viewable.signal().map(move |cur| (component, data.clone(), cur))
                     })
                     .sort_by_cloned(|(_, ComponentData { name: left_name, .. }, left_viewable), (_, ComponentData { name: right_name, .. }, right_viewable)| left_viewable.cmp(right_viewable).reverse().then(left_name.cmp(right_name)))
-                    .map(clone!((row_gap, column_gap, secondary_background_color, border_width, border_color, padding, highlighted_color, unhighlighted_color) move |(component, ComponentData { name, expanded, viewable }, _)|
+                    .map(clone!((row_gap, column_gap, secondary_background_color, border_width, border_color, padding, highlighted_color, unhighlighted_color) move |(component, ComponentData { name, expanded, viewable }, _)| {
+                        println!("here1");
                         FieldElement::new(entity, component, FieldType::Component(name), viewable)
                         .row_gap_signal(row_gap.signal())
                         .column_gap_signal(column_gap.signal())
@@ -407,60 +462,9 @@ impl ElementWrapper for EntityElement {
                         .highlighted_color_signal(highlighted_color.signal())
                         .unhighlighted_color_signal(unhighlighted_color.signal())
                         .expanded_signal(expanded.signal())
-                    ))
+                    }))
                 })
         })))
-    }
-}
-
-impl EntityElement {
-    fn new(entity: Entity, entity_data: EntityData) -> Self {
-        let font_size = Mutable::new(DEFAULT_FONT_SIZE);
-        let row_gap = Mutable::new(DEFAULT_ROW_GAP);
-        let column_gap = Mutable::new(DEFAULT_COLUMN_GAP);
-        let primary_background_color = Mutable::new(DEFAULT_PRIMARY_BACKGROUND_COLOR);
-        let secondary_background_color = Mutable::new(DEFAULT_SECONDARY_BACKGROUND_COLOR);
-        let border_width = Mutable::new(DEFAULT_BORDER_WIDTH);
-        let border_color = Mutable::new(DEFAULT_BORDER_COLOR);
-        let padding = Mutable::new(DEFAULT_ROW_GAP);
-        let highlighted_color = Mutable::new(DEFAULT_HIGHLIGHTED_COLOR);
-        let unhighlighted_color = Mutable::new(DEFAULT_UNHIGHLIGHTED_COLOR);
-        Self {
-            el: Column::<NodeBundle>::new(),
-            expanded: entity_data.expanded.clone(),
-            entity,
-            entity_data,
-            show_name: false,
-            font_size,
-            row_gap,
-            column_gap,
-            primary_background_color,
-            secondary_background_color,
-            border_width,
-            border_color,
-            padding,
-            highlighted_color,
-            unhighlighted_color,
-        }
-    }
-
-    fn show_name(mut self) -> Self {
-        self.show_name = true;
-        self
-    }
-
-    impl_syncers! {
-        font_size: f32,
-        row_gap: f32,
-        column_gap: f32,
-        primary_background_color: Color,
-        secondary_background_color: Color,
-        border_width: f32,
-        border_color: Color,
-        padding: f32,
-        highlighted_color: Color,
-        unhighlighted_color: Color,
-        expanded: bool,
     }
 }
 
@@ -549,14 +553,14 @@ impl FieldElement {
         field_type: FieldType,
         viewable: Mutable<bool>,
     ) -> Self {
-        let row_gap = Mutable::new(DEFAULT_ROW_GAP);
-        let column_gap = Mutable::new(DEFAULT_COLUMN_GAP);
-        let border_width = Mutable::new(DEFAULT_BORDER_WIDTH);
-        let border_color = Mutable::new(DEFAULT_BORDER_COLOR);
-        let padding = Mutable::new(DEFAULT_PADDING);
-        let highlighted_color = Mutable::new(DEFAULT_HIGHLIGHTED_COLOR);
-        let unhighlighted_color = Mutable::new(DEFAULT_UNHIGHLIGHTED_COLOR);
-        let type_path_color = Mutable::new(DEFAULT_SECONDARY_BACKGROUND_COLOR);
+        let row_gap = GLOBAL_ROW_GAP.clone();
+        let column_gap = GLOBAL_COLUMN_GAP.clone();
+        let border_width = GLOBAL_BORDER_WIDTH.clone();
+        let border_color = GLOBAL_BORDER_COLOR.clone();
+        let padding = GLOBAL_PADDING.clone();
+        let highlighted_color = GLOBAL_HIGHLIGHTED_COLOR.clone();
+        let unhighlighted_color = GLOBAL_UNHIGHLIGHTED_COLOR.clone();
+        let type_path_color = GLOBAL_SECONDARY_BACKGROUND_COLOR.clone();
         let expanded = Mutable::new(false);
         let (name, access_option) = match field_type.clone() {
             FieldType::Component(name) => (name, None),
@@ -674,7 +678,6 @@ impl FieldElement {
             .item({
                 let hovered = Mutable::new(false);
                 Row::<NodeBundle>::new()
-                .width(Val::Percent(100.))
                 .with_style(|mut style| style.width = Val::Percent(100.))
                 .apply(row_style(column_gap.signal()))
                 .on_click(clone!((expanded, viewable) move || {
@@ -1212,7 +1215,7 @@ pub(super) fn plugin(app: &mut App) {
         (
             entity_syncer,
             sync_components.run_if(any_with_component::<SyncComponents>),
-            sync_ui.run_if(any_with_component::<FieldListener>),
+            // sync_ui.run_if(any_with_component::<FieldListener>),
         ),
     )
     .init_resource::<FieldPathCache>()
