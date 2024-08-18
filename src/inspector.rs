@@ -179,19 +179,18 @@ impl ElementWrapper for EntityInspector {
                             highlighted_color,
                             unhighlighted_color
                         ) move |(id, data)| {
-                            println!("here0");
                         EntityElement::new(id, data)
                         .show_name()
-                        .font_size_signal(font_size.signal())
-                        .row_gap_signal(row_gap.signal())
-                        .column_gap_signal(column_gap.signal())
-                        .primary_background_color_signal(primary_background_color.signal())
-                        .secondary_background_color_signal(secondary_background_color.signal())
-                        .border_color_signal(border_color.signal())
-                        .border_width_signal(border_width.signal())
-                        .padding_signal(padding.signal())
-                        .highlighted_color_signal(highlighted_color.signal())
-                        .unhighlighted_color_signal(unhighlighted_color.signal())
+                        // .font_size_signal(font_size.signal())
+                        // .row_gap_signal(row_gap.signal())
+                        // .column_gap_signal(column_gap.signal())
+                        // .primary_background_color_signal(primary_background_color.signal())
+                        // .secondary_background_color_signal(secondary_background_color.signal())
+                        // .border_color_signal(border_color.signal())
+                        // .border_width_signal(border_width.signal())
+                        // .padding_signal(padding.signal())
+                        // .highlighted_color_signal(highlighted_color.signal())
+                        // .unhighlighted_color_signal(unhighlighted_color.signal())
                     }))
             })
     }
@@ -256,7 +255,25 @@ impl EntityInspector {
         self
     }
 
-    impl_syncers! {
+    // impl_syncers! {
+    //     height: f32,
+    //     width: f32,
+    //     font_size: f32,
+    //     row_gap: f32,
+    //     column_gap: f32,
+    //     padding: f32,
+    //     border_radius: f32,
+    //     border_width: f32,
+    //     primary_background_color: Color,
+    //     highlighted_color: Color,
+    //     unhighlighted_color: Color,
+    //     border_color: Color,
+    //     scroll_pixels: f32,
+    // }
+}
+
+impl_syncers! {
+    EntityInspector {
         height: f32,
         width: f32,
         font_size: f32,
@@ -316,8 +333,8 @@ struct EntityElement {
     expanded: Mutable<bool>,
 }
 
-impl EntityElement {
-    impl_syncers! {
+impl_syncers! {
+    EntityElement {
         font_size: f32,
         row_gap: f32,
         column_gap: f32,
@@ -330,6 +347,22 @@ impl EntityElement {
         unhighlighted_color: Color,
         expanded: bool,
     }
+}
+
+impl EntityElement {
+    // impl_syncers! {
+    //     font_size: f32,
+    //     row_gap: f32,
+    //     column_gap: f32,
+    //     primary_background_color: Color,
+    //     secondary_background_color: Color,
+    //     border_width: f32,
+    //     border_color: Color,
+    //     padding: f32,
+    //     highlighted_color: Color,
+    //     unhighlighted_color: Color,
+    //     expanded: bool,
+    // }
 
     fn new(entity: Entity, entity_data: EntityData) -> Self {
         let font_size = GLOBAL_FONT_SIZE.clone();
@@ -340,6 +373,7 @@ impl EntityElement {
         let border_width = GLOBAL_BORDER_WIDTH.clone();
         let border_color = GLOBAL_BORDER_COLOR.clone();
         let padding = GLOBAL_PADDING.clone();
+        // let padding = Mutable::new(GLOBAL_PADDING.get());
         let highlighted_color = GLOBAL_HIGHLIGHTED_COLOR.clone();
         let unhighlighted_color = GLOBAL_UNHIGHLIGHTED_COLOR.clone();
         Self {
@@ -424,18 +458,19 @@ impl ElementWrapper for EntityElement {
             )
         }))
         .apply(column_style(row_gap.signal()))
-        .item(show_name.then(||
+        .item(show_name.then(|| {
             HighlightableText::new()
             .with_text(clone!((font_size) move |text| {
                 text
                 .text_signal(name.signal_cloned().map_option(move |name| format!("{name} ({entity})"), move || format!("Entity ({entity})")))
-                .font_size_signal(font_size.signal())
+                .font_size_signal(always(18.))
+                // .font_size_signal(font_size.signal())
             }))
-            .highlighted_color_signal(highlighted_color.signal())
-            .unhighlighted_color_signal(unhighlighted_color.signal())
-            .on_click(clone!((expanded) move || flip(&expanded))),
-        ))
-        .item_signal(if show_name { expanded.signal().boxed() } else { always(true).boxed() }.map_true(clone!((row_gap, column_gap, primary_background_color, secondary_background_color, border_width, border_color, padding, highlighted_color, unhighlighted_color) move || {
+            // .highlighted_color_signal(highlighted_color.signal())
+            // .unhighlighted_color_signal(unhighlighted_color.signal())
+            .on_click(clone!((expanded) move || flip(&expanded)))
+        }))
+        .item_signal(if show_name { expanded.signal().boxed() } else { always(true).boxed() }.map_true(clone!((row_gap, column_gap, secondary_background_color, border_width, border_color, padding, highlighted_color, unhighlighted_color) move || {
             Column::<NodeBundle>::new()
                 .apply(column_style(row_gap.signal()))
                 .apply(horizontal_padding_style(padding.signal()))
@@ -446,12 +481,12 @@ impl ElementWrapper for EntityElement {
                         signal_vec = f(signal_vec);
                     }
                     signal_vec
+                    // this is an emulation of something like .sort_by_signal_cloned
                     .map_signal(|(component, data)| {
                         data.viewable.signal().map(move |cur| (component, data.clone(), cur))
                     })
                     .sort_by_cloned(|(_, ComponentData { name: left_name, .. }, left_viewable), (_, ComponentData { name: right_name, .. }, right_viewable)| left_viewable.cmp(right_viewable).reverse().then(left_name.cmp(right_name)))
                     .map(clone!((row_gap, column_gap, secondary_background_color, border_width, border_color, padding, highlighted_color, unhighlighted_color) move |(component, ComponentData { name, expanded, viewable }, _)| {
-                        println!("here1");
                         FieldElement::new(entity, component, FieldType::Component(name), viewable)
                         .row_gap_signal(row_gap.signal())
                         .column_gap_signal(column_gap.signal())
@@ -762,7 +797,7 @@ impl FieldElement {
                                 }))
                             }))
                             .width(Val::Percent(60.))
-                            .selected_signal(selected.signal())
+                            // .selected_signal(selected.signal())
                             // TODO: this should just take a system instead
                             .option_handler_system(clone!((node_type) move |
                                 In(i),
@@ -910,7 +945,21 @@ impl FieldElement {
         }
     }
 
-    impl_syncers! {
+    // impl_syncers! {
+    //     row_gap: f32,
+    //     column_gap: f32,
+    //     border_width: f32,
+    //     border_color: Color,
+    //     padding: f32,
+    //     highlighted_color: Color,
+    //     unhighlighted_color: Color,
+    //     type_path_color: Color,
+    //     expanded: bool,
+    // }
+}
+
+impl_syncers! {
+    FieldElement {
         row_gap: f32,
         column_gap: f32,
         border_width: f32,

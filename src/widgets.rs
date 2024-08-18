@@ -61,8 +61,19 @@ impl DynamicText {
         }
     }
 
-    impl_syncers! { text: String, font: Handle<Font>, font_size: f32, color: Color }
+    pub fn text_signal(self, text_signal: impl Signal<Item = String> + Send + 'static) -> Self {
+        let syncer = spawn(sync(text_signal, self.text.clone()));
+        self.update_raw_el(|raw_el| raw_el.hold_tasks([syncer]))
+    }
+
+    pub fn text(self, text: String) -> Self {
+        self.text_signal(always(text))
+    }
+
+    // impl_syncers! { text: String, font: Handle<Font>, font_size: f32, color: Color }
 }
+
+impl_syncers! { DynamicText { font: Handle<Font>, font_size: f32, color: Color } }
 
 pub struct HighlightableText {
     pub text: DynamicText,
@@ -87,14 +98,15 @@ impl HighlightableText {
         let hovered = Mutable::new(false);
         let highlighted = Mutable::new(false);
         let dynamic_text = DynamicText::new()
-            .color_signal(
-                signal::or(hovered.signal(), highlighted.signal()).map_bool_signal(
-                    clone!((highlighted_color) move || highlighted_color.signal()),
-                    clone!((unhighlighted_color) move || unhighlighted_color.signal()),
-                ),
-            )
+            // .color_signal(
+            //     signal::or(hovered.signal(), highlighted.signal()).map_bool_signal(
+            //         clone!((highlighted_color) move || highlighted_color.signal()),
+            //         clone!((unhighlighted_color) move || unhighlighted_color.signal()),
+            //     ),
+            // )
             .cursor(CursorIcon::Pointer)
-            .hovered_sync(hovered);
+            .hovered_sync(hovered)
+            ;
         Self {
             text: dynamic_text,
             highlighted_color,
@@ -108,7 +120,15 @@ impl HighlightableText {
         self
     }
 
-    impl_syncers! {
+    // impl_syncers! {
+    //     highlighted_color: Color,
+    //     unhighlighted_color: Color,
+    //     highlighted: bool
+    // }
+}
+
+impl_syncers! {
+    HighlightableText {
         highlighted_color: Color,
         unhighlighted_color: Color,
         highlighted: bool
@@ -178,7 +198,19 @@ impl Checkbox {
         }
     }
 
-    impl_syncers! {
+    // impl_syncers! {
+    //     size: f32,
+    //     background_color: Color,
+    //     highlighted_color: Color,
+    //     unhighlighted_color: Color,
+    //     border_radius: f32,
+    //     hovered: bool,
+    //     checked: bool,
+    // }
+}
+
+impl_syncers! {
+    Checkbox {
         size: f32,
         background_color: Color,
         highlighted_color: Color,
@@ -392,7 +424,7 @@ impl<T> Dropdown<T> {
         }
     }
 
-    impl_syncers! { selected: Option<usize>, show_dropdown: bool, font_size: f32, padding: f32, border_radius: f32, border_width: f32, background_color: Color, highlighted_color: Color, unhighlighted_color: Color, border_color: Color }
+    // impl_syncers! { selected: Option<usize>, show_dropdown: bool, font_size: f32, padding: f32, border_radius: f32, border_width: f32, background_color: Color, highlighted_color: Color, unhighlighted_color: Color, border_color: Color }
 
     pub fn with_show_dropdown(mut self, show_dropdown: Mutable<bool>) -> Self {
         self.show_dropdown = show_dropdown;
@@ -416,9 +448,16 @@ impl<T> Dropdown<T> {
     {
         let system_holder = self.option_handler_system.clone();
         self.update_raw_el(|raw_el| {
-            raw_el.with_entity(move |mut entity| {
+            raw_el.with_entity(clone!((system_holder) move |mut entity| {
                 let handler = entity.world_scope(|world| register_system(world, handler));
                 system_holder.set(Some(handler));
+            }))
+            .on_remove(move |world, _| {
+                if let Some(handler) = system_holder.get() {
+                    world.commands().add(move |world: &mut World| {
+                        let _ = world.remove_system(handler);
+                    })
+                }
             })
         })
     }
