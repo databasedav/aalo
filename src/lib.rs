@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use globals::{GLOBAL_HIGHLIGHTED_COLOR, GLOBAL_UNHIGHLIGHTED_COLOR};
 use haalka::prelude::*;
 use inspector::ENTITIES;
 use std::sync::Mutex;
@@ -12,6 +13,7 @@ pub mod utils;
 pub mod widgets;
 
 use inspector::EntityInspector;
+use style::resize_border;
 
 fn world_inspector(
     with_entity_inspector: Vec<
@@ -131,7 +133,6 @@ impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {
                 El::<NodeBundle>::new()
                     .width(Val::Percent(100.))
                     .height(Val::Percent(100.))
-                    .z_index(ZIndex::Global(i32::MAX))
                     .align_content(Align::center())
                     .child(
                         EntityInspector::new()
@@ -146,7 +147,17 @@ impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {
                                 }
                                 entity_inspector
                             })
-                            .align(Align::new().top().left()),
+                            .align(Align::new().top().left())
+                            .into_el()
+                            .z_index(ZIndex::Global(i32::MAX))
+                            // .apply(resize_border(
+                            //     always(400.),
+                            //     always(600.),
+                            //     always(5.),
+                            //     always(10.),
+                            //     GLOBAL_UNHIGHLIGHTED_COLOR.signal(),
+                            //     GLOBAL_HIGHLIGHTED_COLOR.signal(),
+                            // ))
                     )
                     .spawn(world);
             });

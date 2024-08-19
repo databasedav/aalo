@@ -1,5 +1,6 @@
-use bevy::prelude::*;
+use bevy::{prelude::*, ui::widget};
 use haalka::prelude::*;
+use strum::{Display, EnumIter, IntoEnumIterator};
 
 pub fn nested_fields_style<E: Element>(
     row_gap: impl Signal<Item = f32> + Send + Sync + 'static,
@@ -209,7 +210,7 @@ pub fn border_color_style<E: Element>(
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, EnumIter, PartialEq, Debug)]
 pub enum BoxEdge {
     Top,
     Bottom,
@@ -315,5 +316,218 @@ pub fn margin_style<E: Element>(
                 },
             )
         })
+    }
+}
+
+const RESIZE_BORDER_SLACK_PERCENT: f32 = 90.;
+
+pub fn resize_border<E: Element + Sizeable>(
+    height: impl Signal<Item = f32> + Send + Sync + 'static,
+    width: impl Signal<Item = f32> + Send + Sync + 'static,
+    border_width: impl Signal<Item = f32> + Send + Sync + 'static,
+    radius: impl Signal<Item = f32> + Send + Sync + 'static,
+    unhighlighted_color: impl Signal<Item = Color> + Send + 'static,
+    highlighted_color: impl Signal<Item = Color> + Send + 'static,
+) -> impl FnOnce(E) -> Stack<NodeBundle> {
+    move |mut el| {
+        let hovereds = BoxEdge::iter()
+            .map(|_| Mutable::new(false))
+            .collect::<Vec<_>>();
+        let height = height.dedupe().broadcast();
+        let width = width.dedupe().broadcast();
+        let border_width = border_width.dedupe().broadcast();
+        let radius = radius.dedupe().broadcast();
+        let mut el = Stack::<NodeBundle>::new()
+            .height_signal(height.signal().map(Val::Px))
+            .width_signal(width.signal().map(Val::Px))
+            .layer({
+                let mut el = El::<NodeBundle>::new()
+                    .align(Align::center())
+                    .height(Val::Percent(100.))
+                    .width(Val::Percent(100.))
+                    .apply(border_radius_style(BoxCorner::ALL, radius.signal()))
+                    .apply(border_color_style(highlighted_color));
+                for (edge, hovered) in BoxEdge::iter().zip(hovereds.iter()) {
+                    el = el.apply(border_width_style(
+                        [edge],
+                        hovered
+                            .signal()
+                            .map_true_signal(clone!((border_width) move || border_width.signal()))
+                            .map(Option::unwrap_or_default),
+                    ));
+                }
+                el
+            })
+            .layer({
+                el = el
+                    .align(Align::center())
+                    .height(Val::Percent(100.))
+                    .width(Val::Percent(100.))
+                    .apply(border_radius_style(
+                        BoxCorner::ALL,
+                        radius.signal().map(|radius| radius * 0.8),
+                    ))
+                    .apply(border_color_style(unhighlighted_color));
+                for (edge, hovered) in BoxEdge::iter().zip(hovereds.iter()) {
+                    el = el.apply(border_width_style(
+                        [edge],
+                        hovered
+                            .signal()
+                            .map_false_signal(clone!((border_width) move || border_width.signal()))
+                            .map(Option::unwrap_or_default),
+                    ));
+                }
+                el
+            });
+        let border_width_slack = border_width
+            .signal()
+            .map(|width| width * RESIZE_BORDER_SLACK_PERCENT / 100.)
+            .broadcast();
+        let resize_border_width = border_width
+            .signal()
+            .map(|width| width + width * RESIZE_BORDER_SLACK_PERCENT / 100. * 2.)
+            .map(Val::Px)
+            .broadcast();
+        let hovereds = MutableVec::from(hovereds);
+        let hovered_iter = hovereds.lock_ref().into_iter().cloned().collect::<Vec<_>>();
+        for (edge, hovered) in BoxEdge::iter().zip(hovered_iter) {
+            el = el.layer({
+                let mut el = El::<NodeBundle>::new()
+                    // .update_raw_el(|raw_el| {
+                    //     raw_el.defer_update(DeferredUpdateAppendDirection::Back, |raw_el| {
+                    //         raw_el.insert(Pickable {
+                    //             should_block_lower: false,
+                    //             ..default()
+                    //         })
+                    //     })
+                    // })
+                    .on_signal_with_style(
+                        border_width_slack.signal().map(Val::Px),
+                        move |mut style, slack| match edge {
+                            BoxEdge::Top => {
+                                style.top = -slack;
+                                style.right = slack;
+                            }
+                            BoxEdge::Bottom => {
+                                style.bottom = -slack;
+                                style.right = slack;
+                            }
+                            BoxEdge::Left => {
+                                style.left = -slack;
+                                style.bottom = slack;
+                            }
+                            BoxEdge::Right => {
+                                style.right = -slack;
+                                style.bottom = slack;
+                            }
+                        },
+                    )
+                    .hovered_sync(hovered.clone())
+                    .cursor_signal(
+                        hovereds
+                            .signal_vec_cloned()
+                            .enumerate()
+                            .map_signal(|(i, hovered)| {
+                                map_ref! {
+                                    let i_option = i.signal(),
+                                    let hovered = hovered.signal() => 'block: {
+                                        if let Some(i) = i_option {
+                                            if *hovered {
+                                                break 'block match i {
+                                                    0 => Some(BoxEdge::Top),
+                                                    1 => Some(BoxEdge::Bottom),
+                                                    2 => Some(BoxEdge::Left),
+                                                    3 => Some(BoxEdge::Right),
+                                                    _ => None,
+                                                }
+                                            }
+                                        }
+                                        None
+                                    }
+                                }
+                            })
+                            .to_signal_map(move |edges| {
+                                println!("{:?}", edges);
+                                if edges.contains(&Some(edge)) {
+                                    match edge {
+                                        BoxEdge::Top => {
+                                            if edges.contains(&Some(BoxEdge::Left)) {
+                                                return Some(CursorIcon::NwResize);
+                                            } else if edges.contains(&Some(BoxEdge::Right)) {
+                                                return Some(CursorIcon::NeResize);
+                                            } else {
+                                                return Some(CursorIcon::NsResize);
+                                            }
+                                        }
+                                        BoxEdge::Bottom => {
+                                            if edges.contains(&Some(BoxEdge::Left)) {
+                                                return Some(CursorIcon::SwResize);
+                                            } else if edges.contains(&Some(BoxEdge::Right)) {
+                                                return Some(CursorIcon::SeResize);
+                                            } else {
+                                                return Some(CursorIcon::NsResize);
+                                            }
+                                        }
+                                        BoxEdge::Left => {
+                                            if edges.contains(&Some(BoxEdge::Top)) {
+                                                return Some(CursorIcon::NwResize);
+                                            } else if edges.contains(&Some(BoxEdge::Bottom)) {
+                                                return Some(CursorIcon::SwResize);
+                                            } else {
+                                                return Some(CursorIcon::EwResize);
+                                            }
+                                        }
+                                        BoxEdge::Right => {
+                                            if edges.contains(&Some(BoxEdge::Top)) {
+                                                return Some(CursorIcon::NeResize);
+                                            } else if edges.contains(&Some(BoxEdge::Bottom)) {
+                                                return Some(CursorIcon::SeResize);
+                                            } else {
+                                                return Some(CursorIcon::EwResize);
+                                            }
+                                        }
+                                    }
+                                }
+                                None
+                            }),
+                    )
+                    .align(match edge {
+                        BoxEdge::Top => Align::new().top(),
+                        BoxEdge::Bottom => Align::new().bottom(),
+                        BoxEdge::Left => Align::new().left(),
+                        BoxEdge::Right => Align::new().right(),
+                    })
+                    .background_color(BackgroundColor(Color::NONE));
+                // .background_color(BackgroundColor(Color::BLACK.with_alpha(0.3)));
+                match edge {
+                    BoxEdge::Left | BoxEdge::Right => {
+                        el = el
+                            .height_signal(
+                                map_ref! {
+                                    let slack = border_width_slack.signal(),
+                                    let height = height.signal() => {
+                                        height + slack * 2.
+                                    }
+                                }
+                                .map(Val::Px),
+                            )
+                            .width_signal(resize_border_width.signal());
+                    }
+                    BoxEdge::Top | BoxEdge::Bottom => {
+                        el = el.height_signal(resize_border_width.signal()).width_signal(
+                            map_ref! {
+                                let slack = border_width_slack.signal(),
+                                let width = width.signal() => {
+                                    width + slack * 2.
+                                }
+                            }
+                            .map(Val::Px),
+                        );
+                    }
+                }
+                el
+            });
+        }
+        el
     }
 }

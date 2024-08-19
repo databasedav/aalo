@@ -137,11 +137,11 @@ impl ElementWrapper for EntityInspector {
             .update_raw_el(|raw_el| raw_el.hold_tasks(tasks))
             .apply(column_style(row_gap.signal()))
             .apply(all_padding_style(padding.signal()))
-            .apply(border_style(border_width.signal(), border_color.signal()))
-            .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
+            // .apply(border_style(border_width.signal(), border_color.signal()))
+            // .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
             .apply(background_style(primary_background_color.signal()))
-            .apply(height_style(height.signal()))
-            .apply(width_style(width.signal()))
+            // .apply(height_style(height.signal()))
+            // .apply(width_style(width.signal()))
             .cursor(CursorIcon::Default)
             .scrollable_on_hover(ScrollabilitySettings {
                 flex_direction: FlexDirection::Column,
@@ -181,20 +181,22 @@ impl ElementWrapper for EntityInspector {
                         ) move |(id, data)| {
                         EntityElement::new(id, data)
                         .show_name()
-                        // .font_size_signal(font_size.signal())
-                        // .row_gap_signal(row_gap.signal())
-                        // .column_gap_signal(column_gap.signal())
-                        // .primary_background_color_signal(primary_background_color.signal())
-                        // .secondary_background_color_signal(secondary_background_color.signal())
-                        // .border_color_signal(border_color.signal())
-                        // .border_width_signal(border_width.signal())
-                        // .padding_signal(padding.signal())
-                        // .highlighted_color_signal(highlighted_color.signal())
-                        // .unhighlighted_color_signal(unhighlighted_color.signal())
+                        .font_size_signal(font_size.signal())
+                        .row_gap_signal(row_gap.signal())
+                        .column_gap_signal(column_gap.signal())
+                        .primary_background_color_signal(primary_background_color.signal())
+                        .secondary_background_color_signal(secondary_background_color.signal())
+                        .border_color_signal(border_color.signal())
+                        .border_width_signal(border_width.signal())
+                        .padding_signal(padding.signal())
+                        .highlighted_color_signal(highlighted_color.signal())
+                        .unhighlighted_color_signal(unhighlighted_color.signal())
                     }))
             })
     }
 }
+
+impl Sizeable for EntityInspector {}
 
 impl EntityInspector {
     pub fn new() -> Self {
@@ -255,25 +257,7 @@ impl EntityInspector {
         self
     }
 
-    // impl_syncers! {
-    //     height: f32,
-    //     width: f32,
-    //     font_size: f32,
-    //     row_gap: f32,
-    //     column_gap: f32,
-    //     padding: f32,
-    //     border_radius: f32,
-    //     border_width: f32,
-    //     primary_background_color: Color,
-    //     highlighted_color: Color,
-    //     unhighlighted_color: Color,
-    //     border_color: Color,
-    //     scroll_pixels: f32,
-    // }
-}
-
-impl_syncers! {
-    EntityInspector {
+    impl_syncers! {
         height: f32,
         width: f32,
         font_size: f32,
@@ -333,8 +317,8 @@ struct EntityElement {
     expanded: Mutable<bool>,
 }
 
-impl_syncers! {
-    EntityElement {
+impl EntityElement {
+    impl_syncers! {
         font_size: f32,
         row_gap: f32,
         column_gap: f32,
@@ -347,35 +331,18 @@ impl_syncers! {
         unhighlighted_color: Color,
         expanded: bool,
     }
-}
-
-impl EntityElement {
-    // impl_syncers! {
-    //     font_size: f32,
-    //     row_gap: f32,
-    //     column_gap: f32,
-    //     primary_background_color: Color,
-    //     secondary_background_color: Color,
-    //     border_width: f32,
-    //     border_color: Color,
-    //     padding: f32,
-    //     highlighted_color: Color,
-    //     unhighlighted_color: Color,
-    //     expanded: bool,
-    // }
 
     fn new(entity: Entity, entity_data: EntityData) -> Self {
-        let font_size = GLOBAL_FONT_SIZE.clone();
-        let row_gap = GLOBAL_ROW_GAP.clone();
-        let column_gap = GLOBAL_COLUMN_GAP.clone();
-        let primary_background_color = GLOBAL_PRIMARY_BACKGROUND_COLOR.clone();
-        let secondary_background_color = GLOBAL_SECONDARY_BACKGROUND_COLOR.clone();
-        let border_width = GLOBAL_BORDER_WIDTH.clone();
-        let border_color = GLOBAL_BORDER_COLOR.clone();
-        let padding = GLOBAL_PADDING.clone();
-        // let padding = Mutable::new(GLOBAL_PADDING.get());
-        let highlighted_color = GLOBAL_HIGHLIGHTED_COLOR.clone();
-        let unhighlighted_color = GLOBAL_UNHIGHLIGHTED_COLOR.clone();
+        let font_size = Mutable::new(DEFAULT_FONT_SIZE);
+        let row_gap = Mutable::new(DEFAULT_ROW_GAP);
+        let column_gap = Mutable::new(DEFAULT_COLUMN_GAP);
+        let primary_background_color = Mutable::new(DEFAULT_PRIMARY_BACKGROUND_COLOR);
+        let secondary_background_color = Mutable::new(DEFAULT_SECONDARY_BACKGROUND_COLOR);
+        let border_width = Mutable::new(DEFAULT_BORDER_WIDTH);
+        let border_color = Mutable::new(DEFAULT_BORDER_COLOR);
+        let padding = Mutable::new(DEFAULT_PADDING);
+        let highlighted_color = Mutable::new(DEFAULT_HIGHLIGHTED_COLOR);
+        let unhighlighted_color = Mutable::new(DEFAULT_UNHIGHLIGHTED_COLOR);
         Self {
             el: Column::<NodeBundle>::new(),
             expanded: entity_data.expanded.clone(),
@@ -463,11 +430,10 @@ impl ElementWrapper for EntityElement {
             .with_text(clone!((font_size) move |text| {
                 text
                 .text_signal(name.signal_cloned().map_option(move |name| format!("{name} ({entity})"), move || format!("Entity ({entity})")))
-                .font_size_signal(always(18.))
-                // .font_size_signal(font_size.signal())
+                .font_size_signal(font_size.signal())
             }))
-            // .highlighted_color_signal(highlighted_color.signal())
-            // .unhighlighted_color_signal(unhighlighted_color.signal())
+            .highlighted_color_signal(highlighted_color.signal())
+            .unhighlighted_color_signal(unhighlighted_color.signal())
             .on_click(clone!((expanded) move || flip(&expanded)))
         }))
         .item_signal(if show_name { expanded.signal().boxed() } else { always(true).boxed() }.map_true(clone!((row_gap, column_gap, secondary_background_color, border_width, border_color, padding, highlighted_color, unhighlighted_color) move || {
@@ -588,14 +554,14 @@ impl FieldElement {
         field_type: FieldType,
         viewable: Mutable<bool>,
     ) -> Self {
-        let row_gap = GLOBAL_ROW_GAP.clone();
-        let column_gap = GLOBAL_COLUMN_GAP.clone();
-        let border_width = GLOBAL_BORDER_WIDTH.clone();
-        let border_color = GLOBAL_BORDER_COLOR.clone();
-        let padding = GLOBAL_PADDING.clone();
-        let highlighted_color = GLOBAL_HIGHLIGHTED_COLOR.clone();
-        let unhighlighted_color = GLOBAL_UNHIGHLIGHTED_COLOR.clone();
-        let type_path_color = GLOBAL_SECONDARY_BACKGROUND_COLOR.clone();
+        let row_gap = Mutable::new(DEFAULT_ROW_GAP);
+        let column_gap = Mutable::new(DEFAULT_COLUMN_GAP);
+        let border_width = Mutable::new(DEFAULT_BORDER_WIDTH);
+        let border_color = Mutable::new(DEFAULT_BORDER_COLOR);
+        let padding = Mutable::new(DEFAULT_PADDING);
+        let highlighted_color = Mutable::new(DEFAULT_HIGHLIGHTED_COLOR);
+        let unhighlighted_color = Mutable::new(DEFAULT_UNHIGHLIGHTED_COLOR);
+        let type_path_color = Mutable::new(DEFAULT_SECONDARY_BACKGROUND_COLOR);
         let expanded = Mutable::new(false);
         let (name, access_option) = match field_type.clone() {
             FieldType::Component(name) => (name, None),
@@ -797,7 +763,7 @@ impl FieldElement {
                                 }))
                             }))
                             .width(Val::Percent(60.))
-                            // .selected_signal(selected.signal())
+                            .selected_signal(selected.signal())
                             // TODO: this should just take a system instead
                             .option_handler_system(clone!((node_type) move |
                                 In(i),
@@ -945,21 +911,7 @@ impl FieldElement {
         }
     }
 
-    // impl_syncers! {
-    //     row_gap: f32,
-    //     column_gap: f32,
-    //     border_width: f32,
-    //     border_color: Color,
-    //     padding: f32,
-    //     highlighted_color: Color,
-    //     unhighlighted_color: Color,
-    //     type_path_color: Color,
-    //     expanded: bool,
-    // }
-}
-
-impl_syncers! {
-    FieldElement {
+    impl_syncers! {
         row_gap: f32,
         column_gap: f32,
         border_width: f32,
@@ -1264,7 +1216,7 @@ pub(super) fn plugin(app: &mut App) {
         (
             entity_syncer,
             sync_components.run_if(any_with_component::<SyncComponents>),
-            // sync_ui.run_if(any_with_component::<FieldListener>),
+            sync_ui.run_if(any_with_component::<FieldListener>),
         ),
     )
     .init_resource::<FieldPathCache>()

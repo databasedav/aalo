@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 pub const DEFAULT_HEIGHT: f32 = 400.;
-pub const DEFAULT_WIDTH: f32 = 600.;
+pub const DEFAULT_WIDTH: f32 = 550.;
 pub const DEFAULT_FONT_SIZE: f32 = 18.;
 pub const DEFAULT_ROW_GAP: f32 = 5.;
 pub const DEFAULT_COLUMN_GAP: f32 = 10.;
