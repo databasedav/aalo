@@ -8,6 +8,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[derive(Default)]
 pub struct DynamicText {
     el: El<TextBundle>,
     text: Mutable<String>,
@@ -23,7 +24,7 @@ impl ElementWrapper for DynamicText {
     }
 }
 
-impl Cursorable for DynamicText {}
+impl CursorOnHoverable for DynamicText {}
 impl PointerEventAware for DynamicText {}
 
 impl DynamicText {
@@ -146,6 +147,7 @@ impl Checkbox {
         let highlighted_color = GLOBAL_HIGHLIGHTED_COLOR.clone();
         let unhighlighted_color = GLOBAL_UNHIGHLIGHTED_COLOR.clone();
         let border_radius_base = GLOBAL_BORDER_RADIUS.get() * CHECKBOX_BORDER_RADIUS_MODIFIER;
+        let border_width = GLOBAL_BORDER_WIDTH.clone();
         let border_radius = Mutable::new(border_radius_base);
         let hovered = Mutable::new(false);
         let checked = Mutable::new(false);
@@ -153,8 +155,8 @@ impl Checkbox {
             .align_content(Align::center())
             .apply(square_style(size.signal()))
             .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
-            .apply(border_style(border_radius.signal().map(move |border_radius| border_radius / border_radius_base), hovered.signal().map_bool_signal(clone!((highlighted_color) move || highlighted_color.signal()), || GLOBAL_PRIMARY_BACKGROUND_COLOR.signal())))
-            .apply(background_style(background_color.signal()))
+            .apply(border_width_style(BoxEdge::ALL, border_width.signal()))
+            .apply(border_color_style(hovered.signal().map_bool_signal(clone!((highlighted_color) move || highlighted_color.signal()), || GLOBAL_BORDER_COLOR.signal())))
             .hovered_sync(hovered.clone())
             .cursor(CursorIcon::Pointer)
             .child_signal(
@@ -383,7 +385,8 @@ impl<T> Dropdown<T> {
             show_dropdown: Mutable::new(false),
             font_size: GLOBAL_FONT_SIZE.clone(),
             padding: Mutable::new(GLOBAL_PADDING.get() * 0.5),
-            border_radius: Mutable::new(GLOBAL_BORDER_RADIUS.get() * 0.5),
+            border_radius: GLOBAL_BORDER_RADIUS.clone(),
+            // border_radius: Mutable::new(GLOBAL_BORDER_RADIUS.get() * 0.5),
             border_width: GLOBAL_BORDER_WIDTH.clone(),
             background_color: GLOBAL_PRIMARY_BACKGROUND_COLOR.clone(),
             highlighted_color: GLOBAL_HIGHLIGHTED_COLOR.clone(),

@@ -1,8 +1,9 @@
 use std::i32;
 
 use aalo::{
+    globals::GLOBAL_PRIMARY_BACKGROUND_COLOR,
     inspector::{ComponentData, EntityData},
-    style::{border_color_style, border_width_style, resize_border, BoxEdge},
+    style::{self, *},
     widgets::Dropdown,
     AaloPlugin,
 };
@@ -25,6 +26,7 @@ fn main() {
                 ..default()
             }),
             HaalkaPlugin,
+            // style::plugin,
             AaloPlugin::new().world().with_inspector(|inspector| {
                 inspector
                     .with_entities(|entities| {
@@ -42,7 +44,7 @@ fn main() {
                     .with_components(|components| {
                         components
                             .filter(|(_, ComponentData { name, .. })| {
-                                name == "TestEnum"
+                                name == "FloatWrapper" || name == "TestEnum"
                                 // ||
                                 // name == "BoolComponent"
                                 // ||
@@ -60,6 +62,7 @@ fn main() {
         .register_type::<BoolComponent>()
         .register_type::<BoolComponentHolder>()
         .register_type::<TestEnum>()
+        .register_type::<FloatWrapper>()
         .add_systems(Startup, (camera, ui_root))
         .run();
 }
@@ -68,19 +71,24 @@ fn camera(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
 }
 
-#[derive(Clone, PartialEq, Component, Reflect, Default, EnumIter, Display)]
+#[derive(Clone, PartialEq, Component, Reflect, EnumIter, Display)]
 enum TestEnum {
-    #[default]
     D,
     Y(bool, bool),
     B(f32),
     A(String),
-    J {
-        a: f32,
-        b: String,
-    },
+    J { a: f32, b: String },
     C(BoolComponent),
 }
+
+impl Default for TestEnum {
+    fn default() -> Self {
+        Self::B(20.)
+    }
+}
+
+#[derive(Component, Reflect)]
+struct FloatWrapper(f32);
 
 #[derive(Clone, PartialEq, Component, Reflect, Default)]
 #[reflect(Default)]
@@ -112,10 +120,11 @@ fn ui_root(world: &mut World) {
         .width(Val::Percent(100.))
         .height(Val::Percent(100.))
         .cursor(CursorIcon::Default)
-        .align_content(Align::center())
+        // .align_content(Align::center())
         .name("ui root")
         .update_raw_el(|raw_el| {
             raw_el
+                .insert(FloatWrapper(20.))
                 .insert(BoolComponent::default())
                 .insert(TestEnum::default())
                 .insert(BoolComponentHolder {
@@ -123,90 +132,60 @@ fn ui_root(world: &mut World) {
                     bool_4: (false, default(), vec![false, true]),
                     ..default()
                 })
+                .insert(Pickable {
+                    should_block_lower: false,
+                    ..default()
+                })
         })
-        .item(
-            El::<NodeBundle>::new()
-            .cursor(CursorIcon::Default)
-            .apply(resize_border(
-                always(100.),
-                always(100.),
-                always(5.),
-                always(10.),
-                always(MAROON.into()),
-                always(LIME.into()),
-            ))
-        )
-        // // .item({
-        //     let hovered_right = Mutable::new(false);
-        //     let hovered_top = Mutable::new(false);
-        //     El::<NodeBundle>::new()
-        //     .width(Val::Px(100.))
-        //     .height(Val::Px(100.))
-        //     .child(
-        //         Stack::<NodeBundle>::new()
-        //             .align(Align::center())
-        //             .width(Val::Px(100.))
-        //             .height(Val::Px(100.))
-        //             .name("stuff stack")
-        //             .layer(
-        //                 El::<NodeBundle>::new()
-        //                     .height(Val::Percent(100.))
-        //                     .width(Val::Percent(100.))
-        //                     .border_radius(BorderRadius::all(Val::Px(10.)))
-        //                     .apply(border_width_style(BoxEdge::ALL, always(5.)))
-        //                     .apply(border_color_style(always(
-        //                         bevy::color::palettes::basic::LIME.into(),
-        //                     ))),
-        //             )
-        //             .layer(
-        //                 El::<NodeBundle>::new()
-        //                     .height(Val::Percent(100.))
-        //                     .width(Val::Percent(100.))
-        //                     .border_radius(BorderRadius::all(Val::Px(8.)))
-        //                     .apply(border_width_style([BoxEdge::Left], hovered_right.signal().map_false(|| 5.).map(Option::unwrap_or_default)))
-        //                     .apply(border_color_style(always(
-        //                         bevy::color::palettes::basic::MAROON.into(),
-        //                     ))),
-        //             )
-        //             .layer(
-        //                 El::<NodeBundle>::new()
-        //                     // .with_style(|mut style| style.right = Val::Px(-4.))
-        //                     // .with_style(|mut style| style.position_type = PositionType::Absolute)
-        //                     .hovered_sync(hovered_right)
-        //                     .cursor(CursorIcon::EwResize)
-        //                     .height(Val::Percent(100.))
-        //                     .width(Val::Px(18.))
-        //                     .align(Align::new().left())
-        //                     // .background_color(BackgroundColor(Color::NONE))
-        //                     .background_color(BackgroundColor(Color::BLACK))
-        //             )
-        //             // .layer(
-        //             //     El::<NodeBundle>::new()
-        //             //         .height(Val::Percent(100.))
-        //             //         .width(Val::Percent(100.))
-        //             //         .border_radius(BorderRadius::all(Val::Px(8.)))
-        //             //         .apply(border_width_style([BoxEdge::Top], hovered_top.signal().map_false(|| 5.).map(Option::unwrap_or_default)))
-        //             //         .apply(border_color_style(always(
-        //             //             bevy::color::palettes::basic::MAROON.into(),
-        //             //         ))),
-        //             // )
-        //             // .layer(
-        //             //     El::<NodeBundle>::new()
-        //             //         // .with_style(|mut style| style.right = Val::Px(-4.))
-        //             //         // .with_style(|mut style| style.position_type = PositionType::Absolute)
-        //             //         .hovered_sync(hovered_top)
-        //             //         .cursor(CursorIcon::NsResize)
-        //             //         .height(Val::Percent(100.))
-        //             //         .width(Val::Px(18.))
-        //             //         .align(Align::new().top())
-        //             //         .background_color(BackgroundColor(Color::NONE))
-        //             //         // .background_color(BackgroundColor(Color::BLACK))
-        //             // )
-        //         // .layer(
-        //         //     Dropdown::new(TestEnum::iter().map(Into::into).collect::<Vec<_>>().into())
-        //         //         .basic_option_handler(),
-        //         // )
-        //     )
-        // })
+        // .item(
+        //     Column::<NodeBundle>::new()
+        //         .item(
+        //             El::<TextBundle>::new()
+        //             .text(Text::from_section("test", TextStyle { font_size: 30., ..default() }))
+        //         )
+        //         .item(
+        //             El::<TextBundle>::new()
+        //             .text(Text::from_section("test", TextStyle { font_size: 30., ..default() }))
+        //         )
+        //         .item(
+        //             El::<TextBundle>::new()
+        //             .text(Text::from_section("test", TextStyle { font_size: 30., ..default() }))
+        //         )
+        //         .item(
+        //             El::<TextBundle>::new()
+        //             .text(Text::from_section("test", TextStyle { font_size: 30., ..default() }))
+        //         )
+        //         .apply(padding_style(BoxEdge::ALL, always(10.)))
+        //         .scrollable_on_hover(ScrollabilitySettings {
+        //             flex_direction: FlexDirection::Column,
+        //             overflow: Overflow::clip(),
+        //             scroll_handler: BasicScrollHandler::new()
+        //                 .direction(ScrollDirection::Vertical)
+        //                 .pixels(20.)
+        //                 .into(),
+        //         })
+        //         .into_raw().into_node_builder()
+        //         .apply(RawHaalkaEl::from)
+        //         .apply(El::<NodeBundle>::from)
+        //         .apply(resize_border(
+        //             always(5.),
+        //             always(10.),
+        //             always(MAROON.into()),
+        //             always(LIME.into()),
+        //             None,
+        //         ))
+        //         .apply(background_style(GLOBAL_PRIMARY_BACKGROUND_COLOR.signal()))
+        //         .height(Val::Px(100.))
+        //         .width(Val::Px(100.))
+        //         .with_style(|mut style| {
+        //             style.position_type = PositionType::Absolute;
+        //             style.left = Val::Px(600.);
+        //             style.top = Val::Px(300.);
+        //         }),
+        // )
+        // .layer(
+        //     Dropdown::new(TestEnum::iter().map(Into::into).collect::<Vec<_>>().into())
+        //         .basic_option_handler(),
+        // )
         .spawn(world);
 }

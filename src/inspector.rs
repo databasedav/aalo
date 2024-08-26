@@ -5,6 +5,7 @@ use std::{
 };
 
 use bevy::{
+    color::palettes::css::MAROON,
     ecs::{
         archetype::Archetypes,
         component::{ComponentId, Components},
@@ -61,8 +62,10 @@ type ComponentsSignalVec =
     std::pin::Pin<Box<dyn SignalVec<Item = (ComponentId, ComponentData)> + Send>>;
 
 /// Configuration frontend for entity inspecting elements.
+#[derive(Default)]
 pub struct EntityInspector {
-    base: Column<NodeBundle>,
+    column: Column<NodeBundle>,
+    wrapper_stack: Stack<NodeBundle>,
     entities: MutableBTreeMap<Entity, EntityData>,
     entities_transformers: Vec<Box<dyn FnMut(EntitySignalVec) -> EntitySignalVec>>,
     components_transformers: Vec<Box<dyn FnMut(ComponentsSignalVec) -> ComponentsSignalVec + Send>>,
@@ -84,13 +87,15 @@ pub struct EntityInspector {
 }
 
 impl ElementWrapper for EntityInspector {
-    type EL = Column<NodeBundle>;
+    type EL = Stack<NodeBundle>;
     fn element_mut(&mut self) -> &mut Self::EL {
-        &mut self.base
+        &mut self.wrapper_stack
     }
 
     fn into_el(self) -> Self::EL {
         let Self {
+            column,
+            wrapper_stack,
             entities,
             entities_transformers,
             components_transformers,
@@ -133,16 +138,10 @@ impl ElementWrapper for EntityInspector {
             }).to_future().apply(spawn);
             tasks.push(task);
         }
-        self.base
+        column
             .update_raw_el(|raw_el| raw_el.hold_tasks(tasks))
+            .apply(padding_style(BoxEdge::ALL, padding.signal()))
             .apply(column_style(row_gap.signal()))
-            .apply(all_padding_style(padding.signal()))
-            // .apply(border_style(border_width.signal(), border_color.signal()))
-            // .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
-            .apply(background_style(primary_background_color.signal()))
-            // .apply(height_style(height.signal()))
-            // .apply(width_style(width.signal()))
-            .cursor(CursorIcon::Default)
             .scrollable_on_hover(ScrollabilitySettings {
                 flex_direction: FlexDirection::Column,
                 overflow: Overflow::clip(),
@@ -193,6 +192,20 @@ impl ElementWrapper for EntityInspector {
                         .unhighlighted_color_signal(unhighlighted_color.signal())
                     }))
             })
+            // force the deferred updaters to run early
+            .into_raw()
+            .into_node_builder()
+            .apply(RawHaalkaEl::from)
+            .apply(El::<NodeBundle>::from)
+            .apply(resize_border(
+                border_width.signal(),
+                border_radius.signal(),
+                border_color.signal(),
+                highlighted_color.signal(),
+                Some(wrapper_stack),
+            ))
+            .apply(background_style(primary_background_color.signal()))
+            .cursor(CursorIcon::Default)
     }
 }
 
@@ -201,7 +214,8 @@ impl Sizeable for EntityInspector {}
 impl EntityInspector {
     pub fn new() -> Self {
         Self {
-            base: Column::<NodeBundle>::new(),
+            column: Column::<NodeBundle>::new(),
+            wrapper_stack: Stack::<NodeBundle>::new(),
             entities: MutableBTreeMap::new(),
             entities_transformers: vec![],
             components_transformers: vec![],
@@ -937,6 +951,7 @@ fn field(type_path: &str) -> Option<impl Element> {
     match type_path {
         "bool" => Some(bool_field().type_erase()),
         "bevy_ecs::entity::Entity" => Some(entity_field().type_erase()),
+        "f32" => Some(float_field().type_erase()),
         _ => None,
     }
 }
@@ -1103,6 +1118,79 @@ fn entity_field() -> impl Element {
         }))
 }
 
+fn float_field() -> impl Element {
+    let font_size = GLOBAL_FONT_SIZE.clone();
+    let background_color = GLOBAL_SECONDARY_BACKGROUND_COLOR.clone();
+    let highlighted_color = GLOBAL_HIGHLIGHTED_COLOR.clone();
+    let unhighlighted_color = GLOBAL_UNHIGHLIGHTED_COLOR.clone();
+    let border_radius = GLOBAL_BORDER_RADIUS.clone();
+    let border_width = GLOBAL_BORDER_WIDTH.clone();
+    let border_color = GLOBAL_BORDER_COLOR.clone();
+    let value = Mutable::new(0.0);
+    let hovered = Mutable::new(false);
+    let focused = Mutable::new(false);
+    TextInput::new()
+        .width(Val::Px(100.))
+        .height(Val::Px(30.))
+        .cursor(CursorIcon::EwResize)
+        .update_raw_el(clone!((value, hovered, focused) move |raw_el| {
+            raw_el.with_entity(clone!((value) |mut entity| {
+                let handler = entity.world_scope(|world| {
+                    register_system(world, move |In(reflect): In<Box<dyn Reflect>>| {
+                        if let Ok(cur) = reflect.downcast::<f32>() {
+                            value.set_neq(*cur);
+                        }
+                    })
+                });
+                entity.insert(FieldListener { handler });
+            }))
+            .on_event_with_system_stop_propagation::<Pointer<DragStart>, _>(move |_: In<_>, mut commands: Commands| commands.insert_resource(CursorOverDisabled))
+            .on_event_with_system_stop_propagation::<Pointer<DragEnd>, _>(clone!((hovered, focused) move |_: In<_>, mut commands: Commands| {
+                commands.remove_resource::<CursorOverDisabled>();
+                if !hovered.get() {
+                    focused.set_neq(false);
+                }
+            }))
+            .on_event_with_system_stop_propagation::<Pointer<Drag>, _>(move |In((ui_entity, drag)): In<(Entity, Pointer<Drag>)>,
+             accessories: Query<&Accessory>,
+             parents: Query<&Parent>,
+             sync_components: Query<&SyncComponents>,
+             mut field_path_cache: ResMut<FieldPathCache>,
+             mut commands: Commands| {
+                if let Ok(Accessory { entity, component, .. }) = accessories.get(ui_entity).cloned() {
+                    let field_path = field_path_cached(ui_entity, &accessories, &parents, &sync_components, &mut field_path_cache);
+                    let delta = if drag.delta.x > 0. { 0.1 } else { -0.1 };
+                    let new = value.get() + delta;
+                    commands.add(move |world: &mut World| {
+                        with_reflect_mut(world, entity, component, |reflect| {
+                            if let Ok(target) = reflect.reflect_path_mut(&field_path) {
+                                let _ = target.try_apply(new.as_reflect());
+                            }
+                        });
+                    });
+                }
+            })
+        }))
+        .hovered_sync(hovered.clone())
+        .mode(CosmicWrap::InfiniteLine)
+        .max_lines(MaxLines(1))
+        .scroll_disabled()
+        .text_signal(value.signal().map(|v| format!("{:.1}", v)))
+        .focused_sync(focused.clone())
+        .font_size_signal(font_size.signal())
+        // TODO: TextAttrs::color_signal typing doesn't like map_bool_signal
+        .attrs(
+            TextAttrs::new()
+            .family(FamilyOwned::new(Family::Name("Fira Mono")))
+            .color_signal(signal::or(hovered.signal(), focused.signal()).map_bool(clone!((highlighted_color) move || highlighted_color.signal()), clone!((border_color) move || border_color.signal())).flatten().map(Some))
+        )
+        .cursor_color_signal(border_color.signal().map(CursorColor))
+        .fill_color(CosmicBackgroundColor(Color::NONE))
+        .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
+        .apply(border_width_style(BoxEdge::ALL, border_width.signal()))
+        .apply(border_color_style(signal::or(hovered.signal(), focused.signal()).map_bool_signal(move || highlighted_color.signal(), move || border_color.signal())))
+}
+
 #[derive(Component, Clone)]
 struct FieldListener {
     handler: SystemId<Box<dyn Reflect>>,
@@ -1220,6 +1308,7 @@ pub(super) fn plugin(app: &mut App) {
         ),
     )
     .init_resource::<FieldPathCache>()
+    .insert_resource(CosmidEditCursorPluginDisabled)
     .observe(
         |event: Trigger<EntitiesAdded>, debug_names: Query<DebugName>| {
             let mut entities = ENTITIES.lock_mut();

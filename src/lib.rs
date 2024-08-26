@@ -1,5 +1,8 @@
-use bevy::prelude::*;
-use globals::{GLOBAL_HIGHLIGHTED_COLOR, GLOBAL_UNHIGHLIGHTED_COLOR};
+use bevy::{
+    color::palettes::css::{LIME, MAROON},
+    prelude::*,
+};
+use globals::{GLOBAL_BORDER_COLOR, GLOBAL_HIGHLIGHTED_COLOR, GLOBAL_UNHIGHLIGHTED_COLOR};
 use haalka::prelude::*;
 use inspector::ENTITIES;
 use std::sync::Mutex;
@@ -118,7 +121,7 @@ impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {
         if !app.is_plugin_added::<HaalkaPlugin>() {
             app.add_plugins(HaalkaPlugin);
         }
-        app.add_plugins(inspector::plugin);
+        app.add_plugins((inspector::plugin, style::plugin));
         // TODO: is there a better way to do this? couldn't just capture the transformers in a |&mut World| closure
         if let Some(ref world_inspector_config) = self.world_inspector_config {
             app.insert_resource(WorldInspectorTransformers {
@@ -131,10 +134,16 @@ impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {
             });
             app.add_systems(Startup, move |world: &mut World| {
                 El::<NodeBundle>::new()
+                    .update_raw_el(|raw_el| {
+                        raw_el.insert(Pickable {
+                            should_block_lower: false,
+                            ..default()
+                        })
+                    })
                     .width(Val::Percent(100.))
                     .height(Val::Percent(100.))
-                    .align_content(Align::center())
-                    .child(
+                    .cursor(CursorIcon::Default)
+                    .child({
                         EntityInspector::new()
                             .entities(ENTITIES.clone())
                             .apply(|mut entity_inspector| {
@@ -147,18 +156,16 @@ impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {
                                 }
                                 entity_inspector
                             })
-                            .align(Align::new().top().left())
+                            // .align(Align::new().top().left())
                             .into_el()
-                            .z_index(ZIndex::Global(i32::MAX))
-                            // .apply(resize_border(
-                            //     always(400.),
-                            //     always(600.),
-                            //     always(5.),
-                            //     always(10.),
-                            //     GLOBAL_UNHIGHLIGHTED_COLOR.signal(),
-                            //     GLOBAL_HIGHLIGHTED_COLOR.signal(),
-                            // ))
-                    )
+                            .height(Val::Px(400.))
+                            .width(Val::Px(600.))
+                            .with_style(|mut style| {
+                                style.position_type = PositionType::Absolute;
+                                // style.left = Val::Px(300.);
+                                // style.top = Val::Px(300.);
+                            })
+                    })
                     .spawn(world);
             });
         }
