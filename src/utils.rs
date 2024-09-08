@@ -32,3 +32,13 @@ pub fn register_system<I: 'static, O: 'static, M, S: IntoSystem<I, O, M> + 'stat
     }
     system
 }
+
+#[macro_export]
+macro_rules! signal_or {
+    ($signal:expr) => {
+        $signal
+    };
+    ($first:expr, $($rest:expr),+) => {
+        signal::or($first, signal_or!($($rest),+))
+    };
+}

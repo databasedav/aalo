@@ -1,7 +1,9 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
+    convert::identity,
     i32,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use bevy::{
@@ -10,12 +12,12 @@ use bevy::{
         archetype::Archetypes,
         component::{ComponentId, Components},
         entity::Entities,
-        system::{SystemId, SystemState},
+        system::{RunSystemOnce, SystemId, SystemState},
     },
     prelude::*,
     reflect::{
-        Access, DynamicEnum, DynamicStruct, DynamicTuple, DynamicVariant, ParsedPath, ReflectKind,
-        ReflectMut, ReflectRef, TypeInfo, TypeRegistry, VariantInfo,
+        Access, DynamicEnum, DynamicStruct, DynamicTuple, DynamicVariant, OffsetAccess, ParsedPath,
+        ReflectKind, ReflectMut, ReflectRef, TypeInfo, TypeRegistry, VariantInfo,
     },
 };
 use haalka::prelude::*;
@@ -25,7 +27,7 @@ use nucleo_matcher::{
 };
 
 use super::{defaults::*, globals::*, reflect::*, style::*, utils::*, widgets::*};
-use crate::impl_syncers;
+use crate::{impl_syncers, signal_or};
 
 // TODO: scrollbars
 // TODO: implement frontend for at least all ui node types
@@ -39,6 +41,7 @@ use crate::impl_syncers;
 // TODO: asset based hot reloadable config
 // TODO: optional limited components viewport within entity
 // TODO: list modification abilities, add, remove, reorder
+// TODO: resizing quickly causes cursor spasms
 
 #[derive(Clone, Default)]
 pub struct EntityData {
@@ -271,6 +274,21 @@ impl EntityInspector {
         self
     }
 
+    pub fn target(self, target: impl Into<InspectionTarget>) -> Self {
+        let target = target.into();
+        self.update_raw_el(move |raw_el| {
+            raw_el.with_entity(|mut entity| {
+                if let Some(mut inspection_targets) =
+                    entity.get_mut::<InspectionTargets>()
+                {
+                    inspection_targets.0.push(target);
+                } else {
+                    entity.insert(InspectionTargets(vec![target]));
+                }
+            })
+        })
+    }
+
     impl_syncers! {
         height: f32,
         width: f32,
@@ -413,16 +431,42 @@ impl ElementWrapper for EntityElement {
             unhighlighted_color,
             ..
         } = self;
+        let name_option = name.get_cloned();
         el
         .update_raw_el(clone!((components, expanded) move |raw_el| {
             raw_el
+            .on_spawn_with_system(clone!((expanded) move |In(ui_entity): In<Entity>, parents: Query<&Parent>, inspection_targets: Query<&InspectionTargets>, mut commands: Commands| {
+                for parent in parents.iter_ancestors(ui_entity) {
+                    if let Ok(InspectionTargets(inspection_targets)) = inspection_targets.get(parent) {
+                        let entity_string = entity.to_string();
+                        let index = [Some(&entity_string), name_option.as_ref()];
+                        for target in inspection_targets {
+                            if index.contains(&Some(&target.entity)) {
+                                if let Some(mut entity) = commands.get_entity(ui_entity) {
+                                    let mut pending = VecDeque::new();
+                                    if let Some(component) = &target.component {
+                                        pending.push_back(ProgressPart::Component(component.clone()));
+                                        if let Some(path) = &target.path {
+                                            for OffsetAccess { access, .. } in &path.0 {
+                                                pending.push_back(ProgressPart::Access(access.clone()));
+                                            }
+                                        }
+                                    }
+                                    entity.try_insert(InspectionTargetProgress { target: target.clone(), pending });
+                                }
+                                expanded.set_neq(true);
+                                return
+                            }
+                        }
+                    }
+                }
+            }))
             .observe(clone!((components => components_map) move |event: Trigger<ComponentsAdded>, components: &Components| {
                 let ComponentsAdded(added) = event.event();
                 let mut lock = components_map.lock_mut();
                 for &component in added {
                     if let Some(info) = components.get_info(component) {
-                        let name = pretty_type_name::pretty_type_name_str(info.name());
-                        lock.insert_cloned(component, ComponentData { name, viewable: Mutable::new(false), expanded: Mutable::new(false) });
+                        lock.insert_cloned(component, ComponentData { name: info.name().to_string(), viewable: Mutable::new(false), expanded: Mutable::new(false) });
                     }
                 }
             }))
@@ -443,7 +487,7 @@ impl ElementWrapper for EntityElement {
             HighlightableText::new()
             .with_text(clone!((font_size) move |text| {
                 text
-                .text_signal(name.signal_cloned().map_option(move |name| format!("{name} ({entity})"), move || format!("Entity ({entity})")))
+                .text_signal(name.signal_cloned().map_option(identity, || "Entity".to_string()).map(move |prefix| format!("{prefix} ({entity})")))
                 .font_size_signal(font_size.signal())
             }))
             .highlighted_color_signal(highlighted_color.signal())
@@ -578,7 +622,9 @@ impl FieldElement {
         let type_path_color = Mutable::new(DEFAULT_SECONDARY_BACKGROUND_COLOR);
         let expanded = Mutable::new(false);
         let (name, access_option) = match field_type.clone() {
-            FieldType::Component(name) => (name, None),
+            FieldType::Component(type_path) => {
+                (pretty_type_name::pretty_type_name_str(&type_path), None)
+            }
             FieldType::Access(access) => (access.to_string(), Some(access.clone())),
         };
         let type_path = Mutable::new(None);
@@ -588,7 +634,42 @@ impl FieldElement {
         let el = Column::<NodeBundle>::new()
             .apply(column_style(row_gap.signal()))
             .update_raw_el(|raw_el| {
-                raw_el.on_spawn(clone!((viewable, expanded, node_type, type_path, enum_data_option) move |world, ui_entity| {
+                raw_el
+                .on_spawn_with_system(clone!((expanded, field_type) move |In(ui_entity): In<Entity>, parents: Query<&Parent>, progresses: Query<&InspectionTargetProgress>, mut commands: Commands| {
+                    for parent in parents.iter_ancestors(ui_entity) {
+                        if let Ok(InspectionTargetProgress { target, pending }) = progresses.get(parent) {
+                            if let Some(first) = pending.front() {
+                                if match (first, field_type.clone()) {
+                                    (ProgressPart::Component(target_component), FieldType::Component(component)) => {
+                                        target_component == &component
+                                    },
+                                    (ProgressPart::Access(target_access), FieldType::Access(access)) => {
+                                        target_access == &access
+                                    },
+                                    _ => false
+                                } {
+                                    // TODO: we can't remove the parent progress as we go for some reason ...
+                                    // if let Some(mut entity) = commands.get_entity(parent) {
+                                    //     entity.remove::<InspectionTargetProgress>();
+                                    // }
+                                    if let Some(mut entity) = commands.get_entity(ui_entity) {
+                                        let mut pending = pending.clone();
+                                        pending.pop_front();
+                                        if pending.is_empty() {
+                                            commands.trigger(RemoveTarget { target: target.clone(), from: ui_entity });
+                                            commands.trigger(ScrollTo(ui_entity));
+                                        } else {
+                                            entity.try_insert(InspectionTargetProgress { target: target.clone(), pending });
+                                        }
+                                    }
+                                    expanded.set_neq(true);
+                                }
+                            }
+                            return
+                        }
+                    }
+                }))
+                .on_spawn(clone!((viewable, expanded, node_type, type_path, enum_data_option) move |world, ui_entity| {
                     let mut field_path_option = None;
                     match field_type {
                         FieldType::Component(_) => {
@@ -675,6 +756,7 @@ impl FieldElement {
                                         }
                                     ));
                                     set_viewable = true;
+                                    expanded.set_neq(true);
                                 }
                             },
                             ReflectRef::Value(value) => {
@@ -682,7 +764,6 @@ impl FieldElement {
                                 node_type.set(Some(NodeType::Solo(type_path.to_string())));
                                 expanded.set_neq(true);
                             },
-                            _ => ()
                         }
                         if set_viewable {
                             viewable.set_neq(true);
@@ -759,7 +840,7 @@ impl FieldElement {
                             let show_dropdown = Mutable::new(false);
                             let dropdown_entity = Mutable::new(None);
                             Dropdown::new(options)
-                            .height(Val::Percent(100.))
+                            // .height(Val::Px(30.))
                             .with_show_dropdown(show_dropdown.clone())
                             .update_raw_el(clone!((access_option, selected, dropdown_entity) move |raw_el| {
                                 raw_el
@@ -1118,9 +1199,23 @@ fn entity_field() -> impl Element {
         }))
 }
 
+// TODO: but y tho
+const TEXT_INPUT_FONT_SIZE_MULTIPLIER: f32 = 16. / 18.;
+
+fn text_input_font_size_style(
+    font_size: impl Signal<Item = f32> + Send + 'static,
+) -> impl FnOnce(TextInput) -> TextInput {
+    move |el| {
+        el.font_size_signal(
+            font_size
+                .dedupe()
+                .map(|v| v * TEXT_INPUT_FONT_SIZE_MULTIPLIER),
+        )
+    }
+}
+
 fn float_field() -> impl Element {
     let font_size = GLOBAL_FONT_SIZE.clone();
-    let background_color = GLOBAL_SECONDARY_BACKGROUND_COLOR.clone();
     let highlighted_color = GLOBAL_HIGHLIGHTED_COLOR.clone();
     let unhighlighted_color = GLOBAL_UNHIGHLIGHTED_COLOR.clone();
     let border_radius = GLOBAL_BORDER_RADIUS.clone();
@@ -1129,12 +1224,15 @@ fn float_field() -> impl Element {
     let value = Mutable::new(0.0);
     let hovered = Mutable::new(false);
     let focused = Mutable::new(false);
+    let highlighted = Mutable::new(false);
+    let highlighting =
+        signal_or!(hovered.signal(), focused.signal(), highlighted.signal()).broadcast();
     TextInput::new()
         .width(Val::Px(100.))
         .height(Val::Px(30.))
         .cursor(CursorIcon::EwResize)
-        .update_raw_el(clone!((value, hovered, focused) move |raw_el| {
-            raw_el.with_entity(clone!((value) |mut entity| {
+        .update_raw_el(clone!((value) move |raw_el| {
+            raw_el.with_entity(clone!((value) move |mut entity| {
                 let handler = entity.world_scope(|world| {
                     register_system(world, move |In(reflect): In<Box<dyn Reflect>>| {
                         if let Ok(cur) = reflect.downcast::<f32>() {
@@ -1144,23 +1242,26 @@ fn float_field() -> impl Element {
                 });
                 entity.insert(FieldListener { handler });
             }))
-            .on_event_with_system_stop_propagation::<Pointer<DragStart>, _>(move |_: In<_>, mut commands: Commands| commands.insert_resource(CursorOverDisabled))
-            .on_event_with_system_stop_propagation::<Pointer<DragEnd>, _>(clone!((hovered, focused) move |_: In<_>, mut commands: Commands| {
-                commands.remove_resource::<CursorOverDisabled>();
-                if !hovered.get() {
-                    focused.set_neq(false);
-                }
+            .insert(TextInputFocusOnDownDisabled)
+            .on_event_with_system_stop_propagation::<Pointer<DragStart>, _>(clone!((highlighted) move |_: In<_>, mut commands: Commands| {
+                commands.insert_resource(CursorOnHoverDisabled);
+                highlighted.set_neq(true);
             }))
+            .on_event_with_system_stop_propagation::<Pointer<DragEnd>, _>(move |_: In<_>, mut commands: Commands| {
+                commands.remove_resource::<CursorOnHoverDisabled>();
+                highlighted.set_neq(false);
+            })
             .on_event_with_system_stop_propagation::<Pointer<Drag>, _>(move |In((ui_entity, drag)): In<(Entity, Pointer<Drag>)>,
              accessories: Query<&Accessory>,
              parents: Query<&Parent>,
              sync_components: Query<&SyncComponents>,
              mut field_path_cache: ResMut<FieldPathCache>,
              mut commands: Commands| {
+                let step = 0.1;
+                let delta = if drag.delta.x > 0. { step } else if drag.delta.x < 0. { -step } else { return };
                 if let Ok(Accessory { entity, component, .. }) = accessories.get(ui_entity).cloned() {
-                    let field_path = field_path_cached(ui_entity, &accessories, &parents, &sync_components, &mut field_path_cache);
-                    let delta = if drag.delta.x > 0. { 0.1 } else { -0.1 };
                     let new = value.get() + delta;
+                    let field_path = field_path_cached(ui_entity, &accessories, &parents, &sync_components, &mut field_path_cache);
                     commands.add(move |world: &mut World| {
                         with_reflect_mut(world, entity, component, |reflect| {
                             if let Ok(target) = reflect.reflect_path_mut(&field_path) {
@@ -1176,19 +1277,27 @@ fn float_field() -> impl Element {
         .max_lines(MaxLines(1))
         .scroll_disabled()
         .text_signal(value.signal().map(|v| format!("{:.1}", v)))
+        .focus_signal(focused.signal())
         .focused_sync(focused.clone())
-        .font_size_signal(font_size.signal())
+        .on_click(move || focused.set_neq(true))
+        .apply(text_input_font_size_style(font_size.signal()))
+        .line_height_signal(font_size.signal())
         // TODO: TextAttrs::color_signal typing doesn't like map_bool_signal
         .attrs(
             TextAttrs::new()
             .family(FamilyOwned::new(Family::Name("Fira Mono")))
-            .color_signal(signal::or(hovered.signal(), focused.signal()).map_bool(clone!((highlighted_color) move || highlighted_color.signal()), clone!((border_color) move || border_color.signal())).flatten().map(Some))
+            .weight(FontWeight::MEDIUM)
+            .color_signal(
+                highlighting.signal()
+                .map_bool(clone!((highlighted_color) move || highlighted_color.signal()), clone!((unhighlighted_color) move || unhighlighted_color.signal()))
+                .flatten().map(Some))
         )
-        .cursor_color_signal(border_color.signal().map(CursorColor))
+        .cursor_color_signal(unhighlighted_color.signal().map(CursorColor))
+        .fill_color(CosmicBackgroundColor(Color::BLACK))
         .fill_color(CosmicBackgroundColor(Color::NONE))
         .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
         .apply(border_width_style(BoxEdge::ALL, border_width.signal()))
-        .apply(border_color_style(signal::or(hovered.signal(), focused.signal()).map_bool_signal(move || highlighted_color.signal(), move || border_color.signal())))
+        .apply(border_color_style(highlighting.signal().map_bool_signal(move || highlighted_color.signal(), move || border_color.signal())))
 }
 
 #[derive(Component, Clone)]
@@ -1196,7 +1305,7 @@ struct FieldListener {
     handler: SystemId<Box<dyn Reflect>>,
 }
 
-#[derive(Component, Clone)]
+#[derive(Component, Clone, Debug)]
 struct Accessory {
     entity: Entity,
     component: ComponentId,
@@ -1298,6 +1407,57 @@ fn sync_ui(
     }
 }
 
+// (entity name or id, optional component name, optional reflect path as string)
+
+#[derive(Clone, PartialEq)]
+pub struct InspectionTarget {
+    entity: String,
+    component: Option<String>,
+    path: Option<ParsedPath>,
+}
+
+impl From<(&str, &str, &str)> for InspectionTarget {
+    fn from((entity, component, path): (&str, &str, &str)) -> Self {
+        InspectionTarget {
+            entity: entity.to_string(),
+            component: if component.is_empty() {
+                None
+            } else {
+                Some(component.to_string())
+            },
+            path: if path.is_empty() {
+                None
+            } else {
+                ParsedPath::parse(path).ok()
+            },
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+enum ProgressPart {
+    Component(String),
+    Access(Access<'static>),
+}
+
+#[derive(Event, Clone)]
+struct InspectionTargetProgress {
+    target: InspectionTarget,
+    pending: VecDeque<ProgressPart>,
+}
+
+#[derive(Component)]
+pub(super) struct InspectionTargets(pub(super) Vec<InspectionTarget>);
+
+#[derive(Event)]
+struct RemoveTarget {
+    target: InspectionTarget,
+    from: Entity,
+}
+
+#[derive(Event)]
+struct ScrollTo(Entity);
+
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(
         Update,
@@ -1314,16 +1474,15 @@ pub(super) fn plugin(app: &mut App) {
             let mut entities = ENTITIES.lock_mut();
             let EntitiesAdded(added) = event.event();
             for &entity in added {
+                let name_option = debug_names
+                    .get(entity)
+                    .ok()
+                    .and_then(|name| name.name)
+                    .map(|name| name.to_string());
                 entities.insert_cloned(
                     entity,
                     EntityData {
-                        name: Mutable::new(
-                            debug_names
-                                .get(entity)
-                                .ok()
-                                .and_then(|name| name.name)
-                                .map(|name| name.to_string()),
-                        ),
+                        name: Mutable::new(name_option.clone()),
                         ..default()
                     },
                 );
@@ -1339,5 +1498,22 @@ pub(super) fn plugin(app: &mut App) {
                 field_path_cache.0.remove(&entity);
             }
         },
-    );
+    )
+    .observe(|event: Trigger<RemoveTarget>, parents: Query<&Parent>, mut inspection_targets: Query<(Entity, &mut InspectionTargets)>, mut commands: Commands| {
+        let RemoveTarget { target, from } = event.event();
+        for parent in parents.iter_ancestors(*from) {
+            if let Some(mut entity) = commands.get_entity(parent) {
+                entity.remove::<InspectionTargetProgress>();
+            }
+            if let Some((ui_entity, mut inspection_targets)) = inspection_targets.get_mut(parent).ok() {
+                inspection_targets.0.retain(|t| t != target);
+                if inspection_targets.0.is_empty() {
+                    if let Some(mut entity) = commands.get_entity(ui_entity) {
+                        entity.remove::<InspectionTargets>();
+                    }
+                }
+            }
+        }
+    })
+    ;
 }

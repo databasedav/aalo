@@ -15,8 +15,8 @@ pub mod style;
 pub mod utils;
 pub mod widgets;
 
-use inspector::EntityInspector;
-use style::resize_border;
+use inspector::*;
+use style::*;
 
 fn world_inspector(
     with_entity_inspector: Vec<
@@ -35,7 +35,7 @@ fn world_inspector(
 
 struct WorldInspectorConfig {
     inspector_transformers:
-        Mutex<Vec<Box<dyn FnMut(EntityInspector) -> EntityInspector + Send + Sync + 'static>>>,
+        Mutex<Vec<Box<dyn FnOnce(EntityInspector) -> EntityInspector + Send + Sync + 'static>>>,
 }
 
 // from MoonZoon https://github.com/MoonZoon/MoonZoon/blob/fc73b0d90bf39be72e70fdcab4f319ea5b8e6cfc/crates/zoon/src/lib.rs#L177-L193
@@ -85,7 +85,7 @@ impl<WorldFlag> AaloPlugin<WorldFlag> {
 
     pub fn with_inspector<F>(mut self, f: F) -> Self
     where
-        F: FnMut(EntityInspector) -> EntityInspector + Send + Sync + 'static,
+        F: FnOnce(EntityInspector) -> EntityInspector + Send + Sync + 'static,
         WorldFlag: FlagSet,
     {
         self.world_inspector_config
@@ -113,7 +113,7 @@ impl<WorldFlag> AaloPlugin<WorldFlag> {
 
 #[derive(Resource)]
 struct WorldInspectorTransformers {
-    transformers: Vec<Box<dyn FnMut(EntityInspector) -> EntityInspector + Send + Sync + 'static>>,
+    transformers: Vec<Box<dyn FnOnce(EntityInspector) -> EntityInspector + Send + Sync + 'static>>,
 }
 
 impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {

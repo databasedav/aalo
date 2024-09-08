@@ -1,9 +1,10 @@
 use super::{defaults::*, globals::*, style::*, utils::*};
 use crate::impl_syncers;
-use bevy::{ecs::system::SystemId, prelude::*};
+use bevy::{ecs::system::SystemId, prelude::*, tasks::futures_lite::future::Zip};
 use haalka::prelude::*;
 use std::{
     fmt::Display,
+    i32,
     ops::Neg,
     sync::{Arc, Mutex},
 };
@@ -253,10 +254,10 @@ impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for 
             let padding = padding.signal(),
             let border_width = border_width.signal() => *font_size + *padding * 2. + *border_width * 2. + 2.  // TODO: where did this 2. come from ?
         }
-        .map(Val::Px)
         .broadcast();
         let hovered = Mutable::new(false);
         el
+        .apply(height_style(height.signal()))
         .layer(
             // TODO: should be able to DRY most of the display element for the dropdown option elements
             Stack::<NodeBundle>::new()
@@ -265,8 +266,8 @@ impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for 
                 .apply(border_width_style([BoxEdge::Bottom], show_dropdown.signal().map_false_signal(clone!((border_width) move || border_width.signal())).map(Option::unwrap_or_default)))
                 .apply(border_radius_style([BoxCorner::TopLeft, BoxCorner::TopRight], border_radius.signal()))
                 .apply(border_radius_style([BoxCorner::BottomLeft, BoxCorner::BottomRight], show_dropdown.signal().map_false_signal(clone!((border_radius) move || border_radius.signal())).map(Option::unwrap_or_default)))
+                .apply(height_style(height.signal()))
                 .width(Val::Percent(100.))
-                .height_signal(height.signal())
                 .apply(background_style(background_color.signal()))
                 .cursor(CursorIcon::Pointer)
                 .on_click(clone!((show_dropdown) move || flip(&show_dropdown)))
@@ -307,13 +308,14 @@ impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for 
                 clone!((options, selected) move || {
                     let option_handler_system = option_handler_system.get();
                     Column::<NodeBundle>::new()
+                    .z_index(ZIndex::Global(i32::MAX))
                     .border_color_signal(border_color.signal().dedupe().map(Into::into))
                     .width(Val::Percent(100.))
                     .with_style(|mut style| {
                         style.position_type = PositionType::Absolute;
                         // style.top = Val::Percent(100.);  // TODO: this should work
                     })
-                    .on_signal_with_style(height.signal(), |mut style, height| style.top = height)
+                    .on_signal_with_style(height.signal().map(Val::Px), |mut style, height| style.top = height)
                     .apply(border_width_style([BoxEdge::Left, BoxEdge::Right, BoxEdge::Bottom], border_width.signal()))
                     .apply(border_radius_style([BoxCorner::BottomLeft, BoxCorner::BottomRight], border_radius.signal()))
                     .apply(background_style(background_color.signal()))

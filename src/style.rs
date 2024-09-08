@@ -4,7 +4,7 @@ use bevy::{color::palettes::css::MAROON, prelude::*, ui::widget};
 use haalka::prelude::*;
 use strum::{Display, EnumIter, IntoEnumIterator};
 
-use crate::globals::GLOBAL_PRIMARY_BACKGROUND_COLOR;
+use crate::{globals::GLOBAL_PRIMARY_BACKGROUND_COLOR, signal_or};
 
 pub fn nested_fields_style<E: Element>(
     row_gap: impl Signal<Item = f32> + Send + Sync + 'static,
@@ -376,15 +376,6 @@ const RESIZE_BORDER_SLACK_PERCENT: f32 = 100.;
 
 #[derive(Component)]
 struct ResizeParent;
-
-macro_rules! signal_or {
-    ($signal:expr) => {
-        $signal
-    };
-    ($first:expr, $($rest:expr),+) => {
-        signal::or($first, signal_or!($($rest),+))
-    };
-}
 
 pub fn resize_border<E: Element + Sizeable>(
     border_width: impl Signal<Item = f32> + Send + Sync + 'static,
