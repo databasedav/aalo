@@ -27,44 +27,47 @@ fn main() {
             }),
             HaalkaPlugin,
             // style::plugin,
-            AaloPlugin::new()
-                .world()
-                .with_inspector(|inspector| {
-                    inspector
-                    .target((
-                        "0v1",
-                        "bevy_window::window::Window",
-                        ".internal.physical_cursor_position",
-                    ))
-                    // .with_entities(|entities| {
-                    //     entities
-                    //         .filter(|(_, EntityData { name, .. })| {
-                    //             name.lock_ref().as_ref().map(AsRef::as_ref) == Some("ui root")
-                    //         })
-                    //         .map(|data| {
-                    //             let (_, EntityData { expanded, .. }) = &data;
-                    //             expanded.set(true);
-                    //             data
-                    //         })
-                    //         .boxed()
-                    // })
-                    // .with_components(|components| {
-                    //     components
-                    //         .filter(|(_, ComponentData { name, .. })| {
-                    //             name == "FloatWrapper" || name == "TestEnum"
-                    //             // ||
-                    //             // name == "BoolComponent"
-                    //             // ||
-                    //             // name == "BoolComponentHolder"
-                    //         })
-                    //         .map(|data| {
-                    //             let (_, ComponentData { expanded, .. }) = &data;
-                    //             expanded.set(true);
-                    //             data
-                    //         })
-                    //         .boxed()
-                    // })
-                }),
+            AaloPlugin::new().world().with_inspector(|inspector| {
+                inspector
+                .target((
+                    "0v1",
+                    "bevy_window::window::Window",
+                    ".internal.physical_cursor_position",
+                ))
+                // .target((
+                //     "ui root",
+                //     "bevy_picking_core::Pickable",
+                //     ".is_hoverable",
+                // ))
+                // .with_entities(|entities| {
+                //     entities
+                //         .filter(|(_, EntityData { name, .. })| {
+                //             name.lock_ref().as_ref().map(AsRef::as_ref) == Some("ui root")
+                //         })
+                //         .map(|data| {
+                //             let (_, EntityData { expanded, .. }) = &data;
+                //             expanded.set(true);
+                //             data
+                //         })
+                //         .boxed()
+                // })
+                // .with_components(|components| {
+                //     components
+                //         .filter(|(_, ComponentData { name, .. })| {
+                //             name == "FloatWrapper" || name == "TestEnum"
+                //             // ||
+                //             // name == "BoolComponent"
+                //             // ||
+                //             // name == "BoolComponentHolder"
+                //         })
+                //         .map(|data| {
+                //             let (_, ComponentData { expanded, .. }) = &data;
+                //             expanded.set(true);
+                //             data
+                //         })
+                //         .boxed()
+                // })
+            }),
         ))
         .register_type::<BoolComponent>()
         .register_type::<BoolComponentHolder>()

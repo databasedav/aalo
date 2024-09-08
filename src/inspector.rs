@@ -12,7 +12,7 @@ use bevy::{
         archetype::Archetypes,
         component::{ComponentId, Components},
         entity::Entities,
-        system::{RunSystemOnce, SystemId, SystemState},
+        system::{BoxedSystem, RunSystemOnce, SystemId, SystemState},
     },
     prelude::*,
     reflect::{
@@ -41,7 +41,7 @@ use crate::{impl_syncers, signal_or};
 // TODO: asset based hot reloadable config
 // TODO: optional limited components viewport within entity
 // TODO: list modification abilities, add, remove, reorder
-// TODO: resizing quickly causes cursor spasms
+// TODO: inspector entities appear above resize borders, prolly just wait for https://github.com/bevyengine/bevy/issues/14773
 
 #[derive(Clone, Default)]
 pub struct EntityData {
@@ -278,9 +278,7 @@ impl EntityInspector {
         let target = target.into();
         self.update_raw_el(move |raw_el| {
             raw_el.with_entity(|mut entity| {
-                if let Some(mut inspection_targets) =
-                    entity.get_mut::<InspectionTargets>()
-                {
+                if let Some(mut inspection_targets) = entity.get_mut::<InspectionTargets>() {
                     inspection_targets.0.push(target);
                 } else {
                     entity.insert(InspectionTargets(vec![target]));
@@ -552,24 +550,6 @@ impl AccessFieldData {
     }
 }
 
-#[derive(Clone)]
-enum Node {
-    Access(AccessFieldData),
-    TypePath(String),
-}
-
-impl<T: Into<String>> From<T> for Node {
-    fn from(s: T) -> Self {
-        Self::TypePath(s.into())
-    }
-}
-
-impl From<AccessFieldData> for Node {
-    fn from(data: AccessFieldData) -> Self {
-        Self::Access(data)
-    }
-}
-
 struct FieldElement {
     el: Column<NodeBundle>,
     row_gap: Mutable<f32>,
@@ -656,8 +636,26 @@ impl FieldElement {
                                         let mut pending = pending.clone();
                                         pending.pop_front();
                                         if pending.is_empty() {
-                                            commands.trigger(RemoveTarget { target: target.clone(), from: ui_entity });
-                                            commands.trigger(ScrollTo(ui_entity));
+                                            entity.commands().trigger(RemoveTarget { target: target.clone(), from: ui_entity });
+                                            // TODO: this should work, but scrolling is initiated before all elements can be fully rendered,
+                                            // the synchronous alternative to this would be to somehow have a way to wait for all elements above 
+                                            // to fully render, including recursive signals outputs, not sure how to do that ...
+                                            // let system = Box::new(IntoSystem::into_system(|In(entity): In<Entity>, mut commands: Commands| {
+                                            //     commands.trigger(ScrollTo(entity))
+                                            // }));
+                                            // entity.try_insert(AfterNodely(system));
+                                            async move {
+                                                sleep(Duration::from_millis(100)).await;  // TODO: this wait should be configurable, mostly cuz some ppl might need *more* time
+                                                async_world().apply(move |world: &mut World| {
+                                                    if let Some(mut entity) = world.get_entity_mut(ui_entity) {
+                                                        let system = Box::new(IntoSystem::into_system(|In(entity): In<Entity>, mut commands: Commands| {
+                                                            commands.trigger(ScrollTo(entity))
+                                                        }));
+                                                        entity.insert(AfterNodely(system));
+                                                    }
+                                                }).await;
+                                            }
+                                            .apply(spawn).detach();
                                         } else {
                                             entity.try_insert(InspectionTargetProgress { target: target.clone(), pending });
                                         }
@@ -1458,6 +1456,27 @@ struct RemoveTarget {
 #[derive(Event)]
 struct ScrollTo(Entity);
 
+#[derive(Component)]
+struct AfterNodely(BoxedSystem<Entity>);
+
+fn wait_for_nodely(
+    after_nodelies: Query<(Entity, &Node), With<AfterNodely>>,
+    mut commands: Commands,
+) {
+    for (id, node) in after_nodelies.iter() {
+        if node.size() != Vec2::ZERO {
+            commands.add(move |world: &mut World| {
+                if let Some(mut entity) = world.get_entity_mut(id) {
+                    if let Some(AfterNodely(mut system)) = entity.take::<AfterNodely>() {
+                        system.initialize(world);
+                        system.run(id, world);
+                    }
+                }
+            });
+        }
+    }
+}
+
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(
         Update,
@@ -1465,6 +1484,7 @@ pub(super) fn plugin(app: &mut App) {
             entity_syncer,
             sync_components.run_if(any_with_component::<SyncComponents>),
             sync_ui.run_if(any_with_component::<FieldListener>),
+            wait_for_nodely.run_if(any_with_component::<AfterNodely>),
         ),
     )
     .init_resource::<FieldPathCache>()
@@ -1499,21 +1519,47 @@ pub(super) fn plugin(app: &mut App) {
             }
         },
     )
-    .observe(|event: Trigger<RemoveTarget>, parents: Query<&Parent>, mut inspection_targets: Query<(Entity, &mut InspectionTargets)>, mut commands: Commands| {
-        let RemoveTarget { target, from } = event.event();
-        for parent in parents.iter_ancestors(*from) {
-            if let Some(mut entity) = commands.get_entity(parent) {
-                entity.remove::<InspectionTargetProgress>();
-            }
-            if let Some((ui_entity, mut inspection_targets)) = inspection_targets.get_mut(parent).ok() {
-                inspection_targets.0.retain(|t| t != target);
-                if inspection_targets.0.is_empty() {
-                    if let Some(mut entity) = commands.get_entity(ui_entity) {
-                        entity.remove::<InspectionTargets>();
+    .observe(
+        |event: Trigger<RemoveTarget>,
+         parents: Query<&Parent>,
+         mut inspection_targets: Query<(Entity, &mut InspectionTargets)>,
+         mut commands: Commands| {
+            let RemoveTarget { target, from } = event.event();
+            for parent in parents.iter_ancestors(*from) {
+                if let Some(mut entity) = commands.get_entity(parent) {
+                    entity.remove::<InspectionTargetProgress>();
+                }
+                if let Some((ui_entity, mut inspection_targets)) =
+                    inspection_targets.get_mut(parent).ok()
+                {
+                    inspection_targets.0.retain(|t| t != target);
+                    if inspection_targets.0.is_empty() {
+                        if let Some(mut entity) = commands.get_entity(ui_entity) {
+                            entity.remove::<InspectionTargets>();
+                        }
                     }
                 }
             }
-        }
-    })
-    ;
+        },
+    )
+    .observe(
+        |event: Trigger<ScrollTo>,
+         parents: Query<&Parent>,
+         scroll_handler: Query<&ScrollHandler>,
+         nodes: Query<(&Node, &GlobalTransform)>,
+         mut styles: Query<&mut Style>| {
+            let &ScrollTo(entity) = event.event();
+            for parent in parents.iter_ancestors(entity) {
+                if scroll_handler.contains(parent) {
+                    if let Ok((node, global_transform)) = nodes.get(entity) {
+                        if let Ok(mut style) = styles.get_mut(parent) {
+                            // TODO: why isn't this precise ?
+                            style.top = Val::Px(-node.logical_rect(global_transform).min.y);
+                        }
+                    }
+                    return;
+                }
+            }
+        },
+    );
 }

@@ -465,7 +465,14 @@ pub fn resize_border<E: Element + Sizeable>(
                         edge_highlighted(BoxEdge::Left)
                             .map_true_signal(clone!((border_width) move || border_width.signal()))
                             .map(Option::unwrap_or_default),
-                    ));
+                    ))
+                    .apply(padding_style(
+                        [BoxEdge::Right],
+                        edge_highlighted(BoxEdge::Right)
+                            .map_true_signal(clone!((border_width) move || border_width.signal()))
+                            .map(Option::unwrap_or_default),
+                    ))
+                    ;
                 for edge in BoxEdge::iter() {
                     el = el.apply(border_width_style(
                         [edge],
@@ -489,9 +496,8 @@ pub fn resize_border<E: Element + Sizeable>(
         for (edge, hovered) in BoxEdge::iter().zip(hovered_iter) {
             el = el.layer({
                 let mut el = El::<NodeBundle>::new()
-                    .update_raw_el(clone!(
-                        (edge_downs) | raw_el | {
-                            raw_el
+                    .update_raw_el(clone!((edge_downs) |raw_el| {
+                        raw_el
                         .on_event_with_system_stop_propagation::<Pointer<Down>, _>(clone!((edge_downs) move |_: In<_>, mut on_pointer_up_handlers: ResMut<OnPointerUpHandlers>| {
                             match edge {
                                 BoxEdge::Top => {
@@ -520,6 +526,8 @@ pub fn resize_border<E: Element + Sizeable>(
                                 },
                             }
                         }))
+                        .on_event_with_system_stop_propagation::<Pointer<DragStart>, _>(|_: In<_>, mut commands: Commands| commands.insert_resource(CursorOnHoverDisabled))
+                        .on_event_with_system_stop_propagation::<Pointer<DragEnd>, _>(|_: In<_>, mut commands: Commands| commands.remove_resource::<CursorOnHoverDisabled>())
                         .on_event_with_system_stop_propagation::<Pointer<Drag>, _>(
                             move |In((entity, drag)): In<(Entity, Pointer<Drag>)>,
                                 parents: Query<&Parent>,
@@ -569,8 +577,7 @@ pub fn resize_border<E: Element + Sizeable>(
                                 }
                             }
                         }})
-                        }
-                    ))
+                    }))
                     .on_signal_with_style(
                         border_width_slack.signal().map(Val::Px),
                         move |mut style, slack| match edge {
@@ -609,151 +616,151 @@ pub fn resize_border<E: Element + Sizeable>(
             });
         }
         for (corner, hovered) in BoxCorner::iter().zip(corner_hovereds.iter()) {
-            el = el.layer({
-                let mut el = El::<NodeBundle>::new()
-                    .update_raw_el(clone!((edge_downs) move |raw_el| {
-                        raw_el
-                        .on_event_with_system_stop_propagation::<Pointer<Down>, _>(clone!((edge_downs) move |_: In<_>, mut on_pointer_up_handlers: ResMut<OnPointerUpHandlers>| {
-                            match corner {
-                                BoxCorner::TopLeft => {
-                                    edge_downs[0].set_neq(true);
-                                    edge_downs[2].set_neq(true);
-                                    on_pointer_up_handlers.0.push(Box::new(clone!((edge_downs) move || {
-                                        edge_downs[0].set_neq(false);
-                                        edge_downs[2].set_neq(false);
-                                    })));
-                                },
-                                BoxCorner::TopRight => {
-                                    edge_downs[0].set_neq(true);
-                                    edge_downs[3].set_neq(true);
-                                    on_pointer_up_handlers.0.push(Box::new(clone!((edge_downs) move || {
-                                        edge_downs[0].set_neq(false);
-                                        edge_downs[3].set_neq(false);
-                                    })));
-                                },
-                                BoxCorner::BottomLeft => {
-                                    edge_downs[1].set_neq(true);
-                                    edge_downs[2].set_neq(true);
-                                    on_pointer_up_handlers.0.push(Box::new(clone!((edge_downs) move || {
-                                        edge_downs[1].set_neq(false);
-                                        edge_downs[2].set_neq(false);
-                                    })));
-                                },
-                                BoxCorner::BottomRight => {
-                                    edge_downs[1].set_neq(true);
-                                    edge_downs[3].set_neq(true);
-                                    on_pointer_up_handlers.0.push(Box::new(clone!((edge_downs) move || {
-                                        edge_downs[1].set_neq(false);
-                                        edge_downs[3].set_neq(false);
-                                    })));
-                                },
-                            }
-                        }))
-                        .on_event_with_system_stop_propagation::<Pointer<Drag>, _>(move |In((entity, drag)): In<(Entity, Pointer<Drag>)>, parents: Query<&Parent>, mut resize_parent: Local<Option<Entity>>, resize_parents: Query<&ResizeParent>, mut styles: Query<&mut Style>| {
-                            if resize_parent.is_none() {
-                                for parent in parents.iter_ancestors(entity) {
-                                    if resize_parents.contains(parent) {
-                                        *resize_parent = Some(parent);
-                                    }
-                                }
-                            }
-                            if let Some(resize_parent) = *resize_parent {
-                                if let Ok(mut style) = styles.get_mut(resize_parent) {
-                                    match corner {
-                                        BoxCorner::TopLeft => {
-                                            if let Val::Px(cur) = style.height {
-                                                style.height = Val::Px(cur - drag.delta.y);
-                                            }
-                                            match style.top {
-                                                Val::Auto => style.top = Val::Px(0.),
-                                                Val::Px(cur) => style.top = Val::Px(cur + drag.delta.y),
-                                                _ => (),
-                                            }
-                                            if let Val::Px(cur) = style.width {
-                                                style.width = Val::Px(cur - drag.delta.x);
-                                            }
-                                            match style.left {
-                                                Val::Auto => style.left = Val::Px(0.),
-                                                Val::Px(cur) => style.left = Val::Px(cur + drag.delta.x),
-                                                _ => (),
-                                            }
-                                        }
-                                        BoxCorner::TopRight => {
-                                            if let Val::Px(cur) = style.height {
-                                                style.height = Val::Px(cur - drag.delta.y);
-                                            }
-                                            match style.top {
-                                                Val::Auto => style.top = Val::Px(0.),
-                                                Val::Px(cur) => style.top = Val::Px(cur + drag.delta.y),
-                                                _ => (),
-                                            }
-                                            if let Val::Px(cur) = style.width {
-                                                style.width = Val::Px(cur + drag.delta.x);
-                                            }
-                                        }
-                                        BoxCorner::BottomLeft => {
-                                            if let Val::Px(cur) = style.height {
-                                                style.height = Val::Px(cur + drag.delta.y);
-                                            }
-                                            if let Val::Px(cur) = style.width {
-                                                style.width = Val::Px(cur - drag.delta.x);
-                                            }
-                                            match style.left {
-                                                Val::Auto => style.left = Val::Px(0.),
-                                                Val::Px(cur) => style.left = Val::Px(cur + drag.delta.x),
-                                                _ => (),
-                                            }
-                                        }
-                                        BoxCorner::BottomRight => {
-                                            if let Val::Px(cur) = style.height {
-                                                style.height = Val::Px(cur + drag.delta.y);
-                                            }
-                                            if let Val::Px(cur) = style.width {
-                                                style.width = Val::Px(cur + drag.delta.x);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        })
-                    }))
-                    .apply(square_style(resize_border_width.signal()))
-                    .on_signal_with_style(border_width_slack.signal(), move |mut style, slack| {
+            el = el.layer(
+                El::<NodeBundle>::new()
+                .update_raw_el(clone!((edge_downs) move |raw_el| {
+                    raw_el
+                    .on_event_with_system_stop_propagation::<Pointer<Down>, _>(clone!((edge_downs) move |_: In<_>, mut on_pointer_up_handlers: ResMut<OnPointerUpHandlers>| {
                         match corner {
                             BoxCorner::TopLeft => {
-                                style.top = -Val::Px(slack * 0.5);
-                                style.left = -Val::Px(slack * 0.5);
-                            }
+                                edge_downs[0].set_neq(true);
+                                edge_downs[2].set_neq(true);
+                                on_pointer_up_handlers.0.push(Box::new(clone!((edge_downs) move || {
+                                    edge_downs[0].set_neq(false);
+                                    edge_downs[2].set_neq(false);
+                                })));
+                            },
                             BoxCorner::TopRight => {
-                                style.top = -Val::Px(slack * 0.5);
-                                style.right = -Val::Px(slack * 0.5);
-                            }
+                                edge_downs[0].set_neq(true);
+                                edge_downs[3].set_neq(true);
+                                on_pointer_up_handlers.0.push(Box::new(clone!((edge_downs) move || {
+                                    edge_downs[0].set_neq(false);
+                                    edge_downs[3].set_neq(false);
+                                })));
+                            },
                             BoxCorner::BottomLeft => {
-                                style.bottom = -Val::Px(slack * 0.5);
-                                style.left = -Val::Px(slack * 0.5);
-                            }
+                                edge_downs[1].set_neq(true);
+                                edge_downs[2].set_neq(true);
+                                on_pointer_up_handlers.0.push(Box::new(clone!((edge_downs) move || {
+                                    edge_downs[1].set_neq(false);
+                                    edge_downs[2].set_neq(false);
+                                })));
+                            },
                             BoxCorner::BottomRight => {
-                                style.bottom = -Val::Px(slack * 0.5);
-                                style.right = -Val::Px(slack * 0.5);
+                                edge_downs[1].set_neq(true);
+                                edge_downs[3].set_neq(true);
+                                on_pointer_up_handlers.0.push(Box::new(clone!((edge_downs) move || {
+                                    edge_downs[1].set_neq(false);
+                                    edge_downs[3].set_neq(false);
+                                })));
+                            },
+                        }
+                    }))
+                    .on_event_with_system_stop_propagation::<Pointer<DragStart>, _>(|_: In<_>, mut commands: Commands| commands.insert_resource(CursorOnHoverDisabled))
+                    .on_event_with_system_stop_propagation::<Pointer<DragEnd>, _>(|_: In<_>, mut commands: Commands| commands.remove_resource::<CursorOnHoverDisabled>())
+                    .on_event_with_system_stop_propagation::<Pointer<Drag>, _>(move |In((entity, drag)): In<(Entity, Pointer<Drag>)>, parents: Query<&Parent>, mut resize_parent: Local<Option<Entity>>, resize_parents: Query<&ResizeParent>, mut styles: Query<&mut Style>| {
+                        if resize_parent.is_none() {
+                            for parent in parents.iter_ancestors(entity) {
+                                if resize_parents.contains(parent) {
+                                    *resize_parent = Some(parent);
+                                }
+                            }
+                        }
+                        if let Some(resize_parent) = *resize_parent {
+                            if let Ok(mut style) = styles.get_mut(resize_parent) {
+                                match corner {
+                                    BoxCorner::TopLeft => {
+                                        if let Val::Px(cur) = style.height {
+                                            style.height = Val::Px(cur - drag.delta.y);
+                                        }
+                                        match style.top {
+                                            Val::Auto => style.top = Val::Px(0.),
+                                            Val::Px(cur) => style.top = Val::Px(cur + drag.delta.y),
+                                            _ => (),
+                                        }
+                                        if let Val::Px(cur) = style.width {
+                                            style.width = Val::Px(cur - drag.delta.x);
+                                        }
+                                        match style.left {
+                                            Val::Auto => style.left = Val::Px(0.),
+                                            Val::Px(cur) => style.left = Val::Px(cur + drag.delta.x),
+                                            _ => (),
+                                        }
+                                    }
+                                    BoxCorner::TopRight => {
+                                        if let Val::Px(cur) = style.height {
+                                            style.height = Val::Px(cur - drag.delta.y);
+                                        }
+                                        match style.top {
+                                            Val::Auto => style.top = Val::Px(0.),
+                                            Val::Px(cur) => style.top = Val::Px(cur + drag.delta.y),
+                                            _ => (),
+                                        }
+                                        if let Val::Px(cur) = style.width {
+                                            style.width = Val::Px(cur + drag.delta.x);
+                                        }
+                                    }
+                                    BoxCorner::BottomLeft => {
+                                        if let Val::Px(cur) = style.height {
+                                            style.height = Val::Px(cur + drag.delta.y);
+                                        }
+                                        if let Val::Px(cur) = style.width {
+                                            style.width = Val::Px(cur - drag.delta.x);
+                                        }
+                                        match style.left {
+                                            Val::Auto => style.left = Val::Px(0.),
+                                            Val::Px(cur) => style.left = Val::Px(cur + drag.delta.x),
+                                            _ => (),
+                                        }
+                                    }
+                                    BoxCorner::BottomRight => {
+                                        if let Val::Px(cur) = style.height {
+                                            style.height = Val::Px(cur + drag.delta.y);
+                                        }
+                                        if let Val::Px(cur) = style.width {
+                                            style.width = Val::Px(cur + drag.delta.x);
+                                        }
+                                    }
+                                }
                             }
                         }
                     })
-                    .hovered_sync(hovered.clone())
-                    .cursor(match corner {
-                        BoxCorner::TopLeft | BoxCorner::BottomRight => CursorIcon::NwseResize,
-                        BoxCorner::TopRight | BoxCorner::BottomLeft => CursorIcon::NeswResize,
-                    })
-                    .align(match corner {
-                        BoxCorner::TopLeft => Align::new().top().left(),
-                        BoxCorner::TopRight => Align::new().top().right(),
-                        BoxCorner::BottomLeft => Align::new().bottom().left(),
-                        BoxCorner::BottomRight => Align::new().bottom().right(),
-                    })
-                    .background_color(BackgroundColor(Color::NONE))
-                    // .background_color(BackgroundColor(Color::BLACK.with_alpha(0.3)))
-                    ;
-                el
-            });
+                }))
+                .apply(square_style(resize_border_width.signal()))
+                .on_signal_with_style(border_width_slack.signal(), move |mut style, slack| {
+                    match corner {
+                        BoxCorner::TopLeft => {
+                            style.top = -Val::Px(slack * 0.5);
+                            style.left = -Val::Px(slack * 0.5);
+                        }
+                        BoxCorner::TopRight => {
+                            style.top = -Val::Px(slack * 0.5);
+                            style.right = -Val::Px(slack * 0.5);
+                        }
+                        BoxCorner::BottomLeft => {
+                            style.bottom = -Val::Px(slack * 0.5);
+                            style.left = -Val::Px(slack * 0.5);
+                        }
+                        BoxCorner::BottomRight => {
+                            style.bottom = -Val::Px(slack * 0.5);
+                            style.right = -Val::Px(slack * 0.5);
+                        }
+                    }
+                })
+                .hovered_sync(hovered.clone())
+                .cursor(match corner {
+                    BoxCorner::TopLeft | BoxCorner::BottomRight => CursorIcon::NwseResize,
+                    BoxCorner::TopRight | BoxCorner::BottomLeft => CursorIcon::NeswResize,
+                })
+                .align(match corner {
+                    BoxCorner::TopLeft => Align::new().top().left(),
+                    BoxCorner::TopRight => Align::new().top().right(),
+                    BoxCorner::BottomLeft => Align::new().bottom().left(),
+                    BoxCorner::BottomRight => Align::new().bottom().right(),
+                })
+                .background_color(BackgroundColor(Color::NONE))
+                // .background_color(BackgroundColor(Color::BLACK.with_alpha(0.3)))
+            );
         }
         el
     }
