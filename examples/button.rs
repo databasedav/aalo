@@ -3,6 +3,7 @@
 use bevy::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use haalka::prelude::*;
+use strum::{EnumIter, Display};
 
 fn main() {
     App::new()
@@ -23,8 +24,29 @@ fn main() {
         .run();
 }
 
-#[derive(Component, Reflect, Default)]
-struct BoolComponent(bool);
+#[derive(Clone, PartialEq, Component, Reflect, EnumIter, Display)]
+enum TestEnum {
+    D,
+    Y(bool, bool),
+    B(f32),
+    A(String),
+    J { a: f32, b: String },
+    C(BoolComponent),
+    T(u32),
+}
+
+impl Default for TestEnum {
+    fn default() -> Self {
+        Self::B(20.)
+    }
+}
+
+#[derive(Component, Reflect)]
+struct FloatWrapper(f32);
+
+#[derive(Clone, PartialEq, Component, Reflect, Default)]
+#[reflect(Default)]
+struct BoolComponent(bool, bool);
 
 #[derive(Component, Reflect, Default)]
 struct BoolComponentHolder {
@@ -32,6 +54,7 @@ struct BoolComponentHolder {
     bool_2: BoolComponent,
     bool_3: Vec<bool>,
     bool_4: (bool, BoolComponent, Vec<bool>),
+    enum_: TestEnum,
 }
 
 const NORMAL_BUTTON: Color = Color::srgb(0.15, 0.15, 0.15);
@@ -117,11 +140,16 @@ fn ui_root(world: &mut World) {
     El::<NodeBundle>::new()
         .update_raw_el(|raw_el| {
             raw_el
-                .insert(BoolComponent(true))
-                // .insert(BoolComponentHolder::default())
+                .insert(FloatWrapper(20.))
+                .insert(BoolComponent::default())
+                .insert(TestEnum::default())
                 .insert(BoolComponentHolder {
                     bool_3: vec![true, false],
                     bool_4: (false, default(), vec![false, true]),
+                    ..default()
+                })
+                .insert(Pickable {
+                    should_block_lower: false,
                     ..default()
                 })
                 .insert(Name::new("ui root"))

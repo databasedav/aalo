@@ -1,9 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    convert::identity,
-    i32,
-    sync::{Arc, Mutex},
-    time::Duration,
+    collections::{HashMap, HashSet, VecDeque}, convert::identity, fmt::Display, i32, sync::{Arc, Mutex}, time::Duration
 };
 
 use bevy::{
@@ -16,8 +12,7 @@ use bevy::{
     },
     prelude::*,
     reflect::{
-        Access, DynamicEnum, DynamicStruct, DynamicTuple, DynamicVariant, OffsetAccess, ParsedPath,
-        ReflectKind, ReflectMut, ReflectRef, TypeInfo, TypeRegistry, VariantInfo,
+        Access, DynamicEnum, DynamicStruct, DynamicTuple, DynamicVariant, Enum, OffsetAccess, ParsedPath, ReflectKind, ReflectMut, ReflectRef, TypeInfo, TypeRegistry, VariantInfo
     },
 };
 use haalka::prelude::*;
@@ -25,6 +20,7 @@ use nucleo_matcher::{
     pattern::{CaseMatching, Normalization, Pattern},
     Config, Matcher,
 };
+use num::Bounded;
 
 use super::{defaults::*, globals::*, reflect::*, style::*, utils::*, widgets::*};
 use crate::{impl_syncers, signal_or};
@@ -582,7 +578,43 @@ enum NodeType {
 #[derive(Clone)]
 struct EnumData {
     variants: Vec<&'static str>,
-    initial: usize,
+}
+
+fn get_variant_info(enum_: &dyn Enum, variant: usize) -> Option<&VariantInfo> {
+    if let Some(TypeInfo::Enum(enum_info)) = enum_.get_represented_type_info() {
+        enum_info.variant_at(variant)
+    } else {
+        None
+    }
+}
+
+fn populate_enum_with_variant(enum_: &dyn Enum, variant: usize, node_type: &Mutable<Option<NodeType>>) {
+    if let Some(variant_info) = get_variant_info(enum_, variant) {
+        match variant_info {
+            VariantInfo::Struct(struct_info) => {
+                let mut fields = vec![];
+                for i in 0..struct_info.field_len() {
+                    if let Some(name) = struct_info.field_at(i).map(|field| field.name()) {
+                        let access = Access::Field(name.to_string().into());
+                        fields.push(AccessFieldData::new(access));
+                    }
+                }
+                node_type.set(Some(NodeType::Multi { items: fields.into(), size_dynamic: None }));
+            },
+            VariantInfo::Tuple(tuple_info) => {
+                let mut fields = vec![];
+                for i in 0..tuple_info.field_len() {
+                    let access = Access::TupleIndex(i);
+                    fields.push(AccessFieldData::new(access));
+                }
+                node_type.set(Some(NodeType::Multi { items: fields.into(), size_dynamic: None }));
+            },
+            VariantInfo::Unit(_) => {
+                // TODO: unit enum indicator
+                node_type.take();
+            },
+        }
+    }
 }
 
 impl FieldElement {
@@ -750,7 +782,6 @@ impl FieldElement {
                                     enum_data_option.set(Some(
                                         EnumData {
                                             variants: enum_info.variant_names().into_iter().map(std::ops::Deref::deref).collect::<Vec<_>>(),
-                                            initial: enum_.variant_index()
                                         }
                                     ));
                                     set_viewable = true;
@@ -832,23 +863,27 @@ impl FieldElement {
                     .apply(column_style(row_gap.signal()))
                     .item_signal(
                         enum_data_option.signal_cloned()
-                        .map_some(clone!((access_option, node_type) move |EnumData { variants, initial }| {
+                        .map_some(clone!((access_option, node_type) move |EnumData { variants }| {
                             let options = variants.into_iter().map(Into::into).collect::<Vec<_>>().into();
-                            let selected = Mutable::new(Some(initial));
+                            let selected = Mutable::new(None);
                             let show_dropdown = Mutable::new(false);
                             let dropdown_entity = Mutable::new(None);
                             Dropdown::new(options)
-                            // .height(Val::Px(30.))
                             .with_show_dropdown(show_dropdown.clone())
-                            .update_raw_el(clone!((access_option, selected, dropdown_entity) move |raw_el| {
+                            .update_raw_el(clone!((access_option, selected, dropdown_entity, node_type) move |raw_el| {
                                 raw_el
                                 .insert(Accessory { entity, component, access_option })
-                                .with_entity(clone!((selected) move |mut entity| {
+                                .with_entity(clone!((selected, node_type) move |mut entity| {
                                     dropdown_entity.set_neq(Some(entity.id()));
                                     let handler = entity.world_scope(move |world| {
-                                        register_system(world, clone!((selected) move |In(reflect): In<Box<dyn Reflect>>| {
+                                        register_system(world, clone!((selected, node_type) move |In(reflect): In<Box<dyn Reflect>>| {
                                             if let ReflectRef::Enum(enum_) = reflect.reflect_ref() {
-                                                selected.set_neq(Some(enum_.variant_index()));
+                                                let variant = enum_.variant_index();
+                                                let new = Some(variant);
+                                                if *selected.lock_ref() != new {
+                                                    selected.set(new);
+                                                    populate_enum_with_variant(enum_, variant, &node_type);
+                                                }
                                             }
                                         }))
                                     });
@@ -874,35 +909,10 @@ impl FieldElement {
                                             with_reflect_mut(world, entity, component, |reflect| {
                                                 if let Ok(target) = reflect.reflect_path_mut(&field_path) {
                                                     if let ReflectMut::Enum(enum_) = target.reflect_mut() {
-                                                        if let Some(TypeInfo::Enum(enum_info)) = enum_.get_represented_type_info() {
-                                                            if let Some(variant_info) = enum_info.variant_at(i) {
-                                                                match variant_info {
-                                                                    VariantInfo::Struct(struct_info) => {
-                                                                        let mut fields = vec![];
-                                                                        for i in 0..struct_info.field_len() {
-                                                                            if let Some(name) = struct_info.field_at(i).map(|field| field.name()) {
-                                                                                let access = Access::Field(name.to_string().into());
-                                                                                fields.push(AccessFieldData::new(access));
-                                                                            }
-                                                                        }
-                                                                        node_type.set(Some(NodeType::Multi { items: fields.into(), size_dynamic: None }));
-                                                                    },
-                                                                    VariantInfo::Tuple(tuple_info) => {
-                                                                        let mut fields = vec![];
-                                                                        for i in 0..tuple_info.field_len() {
-                                                                            let access = Access::TupleIndex(i);
-                                                                            fields.push(AccessFieldData::new(access));
-                                                                        }
-                                                                        node_type.set(Some(NodeType::Multi { items: fields.into(), size_dynamic: None }));
-                                                                    },
-                                                                    VariantInfo::Unit(_) => {
-                                                                        // TODO: unit enum indicator
-                                                                        node_type.take();
-                                                                    },
-                                                                }
-                                                                if let Some(default) = variant_default_value(variant_info, &type_registry.read()) {
-                                                                    target.apply(&default);
-                                                                }
+                                                        populate_enum_with_variant(enum_, i, &node_type);
+                                                        if let Some(variant_info) = get_variant_info(enum_, i) {
+                                                            if let Some(default) = variant_default_value(variant_info, &type_registry.read()) {
+                                                                target.apply(&default);
                                                             }
                                                         }
                                                     }
@@ -1029,8 +1039,21 @@ fn field(type_path: &str) -> Option<impl Element> {
     }
     match type_path {
         "bool" => Some(bool_field().type_erase()),
+        "isize" => Some(numeric_field::<isize>().type_erase()),
+        "i8" => Some(numeric_field::<i8>().type_erase()),
+        "i16" => Some(numeric_field::<i16>().type_erase()),
+        "i32" => Some(numeric_field::<i32>().type_erase()),
+        "i64" => Some(numeric_field::<i64>().type_erase()),
+        "i128" => Some(numeric_field::<i128>().type_erase()),
+        "usize" => Some(numeric_field::<usize>().type_erase()),
+        "u8" => Some(numeric_field::<u8>().type_erase()),
+        "u16" => Some(numeric_field::<u16>().type_erase()),
+        "u32" => Some(numeric_field::<u32>().type_erase()),
+        "u64" => Some(numeric_field::<u64>().type_erase()),
+        "u128" => Some(numeric_field::<u128>().type_erase()),
+        "f32" => Some(numeric_field::<f32>().type_erase()),
+        "f64" => Some(numeric_field::<f64>().type_erase()),
         "bevy_ecs::entity::Entity" => Some(entity_field().type_erase()),
-        "f32" => Some(float_field().type_erase()),
         _ => None,
     }
 }
@@ -1212,14 +1235,43 @@ fn text_input_font_size_style(
     }
 }
 
-fn float_field() -> impl Element {
+pub trait NumericFieldable {
+    type T: Default + PartialEq + Reflect + Copy + std::ops::Add<Self::T, Output = Self::T> + std::ops::Sub<Self::T, Output = Self::T> + Display + num::Bounded + PartialOrd;
+    const STEP: Self::T;
+}
+
+macro_rules! impl_numeric_fieldable {
+    ($type:ty, $step:expr) => {
+        impl NumericFieldable for $type {
+            type T = $type;
+            const STEP: $type = $step;
+        }
+    };
+}
+
+impl_numeric_fieldable!(isize, 1);
+impl_numeric_fieldable!(i8, 1);
+impl_numeric_fieldable!(i16, 1);
+impl_numeric_fieldable!(i32, 1);
+impl_numeric_fieldable!(i64, 1);
+impl_numeric_fieldable!(i128, 1);
+impl_numeric_fieldable!(usize, 1);
+impl_numeric_fieldable!(u8, 1);
+impl_numeric_fieldable!(u16, 1);
+impl_numeric_fieldable!(u32, 1);
+impl_numeric_fieldable!(u64, 1);
+impl_numeric_fieldable!(u128, 1);
+impl_numeric_fieldable!(f32, 1.);
+impl_numeric_fieldable!(f64, 1.);
+
+fn numeric_field<T: NumericFieldable>() -> impl Element {
     let font_size = GLOBAL_FONT_SIZE.clone();
     let highlighted_color = GLOBAL_HIGHLIGHTED_COLOR.clone();
     let unhighlighted_color = GLOBAL_UNHIGHLIGHTED_COLOR.clone();
     let border_radius = GLOBAL_BORDER_RADIUS.clone();
     let border_width = GLOBAL_BORDER_WIDTH.clone();
     let border_color = GLOBAL_BORDER_COLOR.clone();
-    let value = Mutable::new(0.0);
+    let value = Mutable::new(T::T::default());
     let hovered = Mutable::new(false);
     let focused = Mutable::new(false);
     let highlighted = Mutable::new(false);
@@ -1233,7 +1285,7 @@ fn float_field() -> impl Element {
             raw_el.with_entity(clone!((value) move |mut entity| {
                 let handler = entity.world_scope(|world| {
                     register_system(world, move |In(reflect): In<Box<dyn Reflect>>| {
-                        if let Ok(cur) = reflect.downcast::<f32>() {
+                        if let Ok(cur) = reflect.downcast::<T::T>() {
                             value.set_neq(*cur);
                         }
                     })
@@ -1255,10 +1307,25 @@ fn float_field() -> impl Element {
              sync_components: Query<&SyncComponents>,
              mut field_path_cache: ResMut<FieldPathCache>,
              mut commands: Commands| {
-                let step = 0.1;
-                let delta = if drag.delta.x > 0. { step } else if drag.delta.x < 0. { -step } else { return };
                 if let Ok(Accessory { entity, component, .. }) = accessories.get(ui_entity).cloned() {
-                    let new = value.get() + delta;
+                    let new = {
+                        let cur = value.get();
+                        if drag.delta.x > 0. {
+                            if cur <= T::T::max_value() - T::STEP {
+                                cur + T::STEP
+                            } else {
+                                return
+                            }
+                        } else if drag.delta.x < 0. {
+                            if cur >= T::T::min_value() + T::STEP {
+                                cur - T::STEP
+                            } else {
+                                return
+                            }
+                        } else {
+                            return
+                        }
+                    };
                     let field_path = field_path_cached(ui_entity, &accessories, &parents, &sync_components, &mut field_path_cache);
                     commands.add(move |world: &mut World| {
                         with_reflect_mut(world, entity, component, |reflect| {
@@ -1553,7 +1620,6 @@ pub(super) fn plugin(app: &mut App) {
                 if scroll_handler.contains(parent) {
                     if let Ok((node, global_transform)) = nodes.get(entity) {
                         if let Ok(mut style) = styles.get_mut(parent) {
-                            // TODO: why isn't this precise ?
                             style.top = Val::Px(-node.logical_rect(global_transform).min.y);
                         }
                     }

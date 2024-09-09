@@ -29,16 +29,16 @@ fn main() {
             // style::plugin,
             AaloPlugin::new().world().with_inspector(|inspector| {
                 inspector
-                .target((
-                    "0v1",
-                    "bevy_window::window::Window",
-                    ".internal.physical_cursor_position",
-                ))
                 // .target((
-                //     "ui root",
-                //     "bevy_picking_core::Pickable",
-                //     ".is_hoverable",
+                //     "0v1",
+                //     "bevy_window::window::Window",
+                //     ".internal.physical_cursor_position.0",
                 // ))
+                .target((
+                    "BoolComponentHolder",
+                    "test::BoolComponentHolder",
+                    ".enum_",
+                ))
                 // .with_entities(|entities| {
                 //     entities
                 //         .filter(|(_, EntityData { name, .. })| {
@@ -73,7 +73,7 @@ fn main() {
         .register_type::<BoolComponentHolder>()
         .register_type::<TestEnum>()
         .register_type::<FloatWrapper>()
-        .add_systems(Startup, (camera, ui_root))
+        .add_systems(Startup, (camera, ui_root, setup))
         .run();
 }
 
@@ -89,6 +89,7 @@ enum TestEnum {
     A(String),
     J { a: f32, b: String },
     C(BoolComponent),
+    T(u32),
 }
 
 impl Default for TestEnum {
@@ -123,6 +124,17 @@ fn test_button() -> impl Element {
             let mut holder = holder.single_mut();
             holder.bool_3.push(true);
         })
+}
+
+fn setup(mut commands: Commands) {
+    commands.spawn((FloatWrapper(20.), Name::new("FloatWrapper")));
+    commands.spawn((BoolComponent::default(), Name::new("BoolComponent")));
+    commands.spawn((TestEnum::default(), Name::new("TestEnum")));
+    commands.spawn((BoolComponentHolder {
+        bool_3: vec![true, false],
+        bool_4: (false, default(), vec![false, true]),
+        ..default()
+    }, Name::new("BoolComponentHolder")));
 }
 
 fn ui_root(world: &mut World) {
