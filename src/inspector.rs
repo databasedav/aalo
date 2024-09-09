@@ -642,7 +642,6 @@ impl FieldElement {
         let type_path = Mutable::new(None);
         let node_type = Mutable::new(None);
         let enum_data_option = Mutable::new(None);
-        let component_root = matches!(field_type, FieldType::Component(_));
         let el = Column::<NodeBundle>::new()
             .apply(column_style(row_gap.signal()))
             .update_raw_el(|raw_el| {
@@ -677,7 +676,7 @@ impl FieldElement {
                                             // }));
                                             // entity.try_insert(AfterNodely(system));
                                             async move {
-                                                sleep(Duration::from_millis(100)).await;  // TODO: this wait should be configurable, mostly cuz some ppl might need *more* time
+                                                sleep(Duration::from_millis(200)).await;  // TODO: this wait should be configurable, mostly cuz some ppl might need *more* time
                                                 async_world().apply(move |world: &mut World| {
                                                     if let Some(mut entity) = world.get_entity_mut(ui_entity) {
                                                         let system = Box::new(IntoSystem::into_system(|In(entity): In<Entity>, mut commands: Commands| {
@@ -699,7 +698,7 @@ impl FieldElement {
                         }
                     }
                 }))
-                .on_spawn(clone!((viewable, expanded, node_type, type_path, enum_data_option) move |world, ui_entity| {
+                .on_spawn(clone!((viewable, expanded, node_type, type_path, enum_data_option, field_type) move |world, ui_entity| {
                     let mut field_path_option = None;
                     match field_type {
                         FieldType::Component(_) => {
@@ -827,19 +826,18 @@ impl FieldElement {
                     .map(|el| el.align(Align::new().top()))
                 )
                 .item_signal(
-                    if !component_root {
-                        type_path.signal_cloned().map_some(clone!((type_path_color) move |type_path| {
+                    if let FieldType::Component(type_path) = field_type {
+                        hovered.signal()
+                        .map_true(clone!((type_path_color, type_path) move || {
                             DynamicText::new()
-                            .text_signal(hovered.signal().map_bool(clone!((type_path) move || type_path.clone()), move || pretty_type_name::pretty_type_name_str(&type_path)))
+                            .text(type_path.clone())
                             .color_signal(type_path_color.signal())
                         }))
                         .boxed()
                     } else {
-                        hovered.signal().map_true_signal(move || type_path.signal_cloned())
-                        .map(Option::flatten)
-                        .map_some(clone!((type_path_color) move |type_path| {
+                        type_path.signal_cloned().map_some(clone!((type_path_color) move |type_path| {
                             DynamicText::new()
-                            .text(type_path)
+                            .text_signal(hovered.signal().map_bool(clone!((type_path) move || type_path.clone()), move || pretty_type_name::pretty_type_name_str(&type_path)))
                             .color_signal(type_path_color.signal())
                         }))
                         .boxed()
@@ -1236,7 +1234,7 @@ fn text_input_font_size_style(
 }
 
 pub trait NumericFieldable {
-    type T: Default + PartialEq + Reflect + Copy + std::ops::Add<Self::T, Output = Self::T> + std::ops::Sub<Self::T, Output = Self::T> + Display + num::Bounded + PartialOrd;
+    type T: Default + PartialEq + Reflect + Copy + std::ops::Add<Self::T, Output = Self::T> + std::ops::Sub<Self::T, Output = Self::T> + Display + num::Bounded + PartialOrd + std::str::FromStr;
     const STEP: Self::T;
 }
 
@@ -1261,8 +1259,8 @@ impl_numeric_fieldable!(u16, 1);
 impl_numeric_fieldable!(u32, 1);
 impl_numeric_fieldable!(u64, 1);
 impl_numeric_fieldable!(u128, 1);
-impl_numeric_fieldable!(f32, 1.);
-impl_numeric_fieldable!(f64, 1.);
+impl_numeric_fieldable!(f32, 0.1);
+impl_numeric_fieldable!(f64, 0.1);
 
 fn numeric_field<T: NumericFieldable>() -> impl Element {
     let font_size = GLOBAL_FONT_SIZE.clone();
@@ -1277,11 +1275,29 @@ fn numeric_field<T: NumericFieldable>() -> impl Element {
     let highlighted = Mutable::new(false);
     let highlighting =
         signal_or!(hovered.signal(), focused.signal(), highlighted.signal()).broadcast();
+    let dragging = Mutable::new(false);
     TextInput::new()
         .width(Val::Px(100.))
         .height(Val::Px(30.))
         .cursor(CursorIcon::EwResize)
-        .update_raw_el(clone!((value) move |raw_el| {
+        .on_signal_with_cosmic_edit(focused.signal(), |entity, focused| {
+            if focused {
+                let id = entity.id();
+                let world = entity.into_world_mut();
+                let mut system_state = SystemState::<(Query<&mut CosmicEditor>, ResMut<CosmicFontSystem>)>::new(world);
+                let (mut cosmic_editors, mut font_system) = system_state.get_mut(world);
+                if let Ok(mut cosmic_editor) = cosmic_editors.get_mut(id) {
+                    cosmic_editor.action(&mut font_system.0, Action::Motion(Motion::BufferEnd));
+                    let current_cursor = cosmic_editor.cursor();
+                    cosmic_editor.set_selection(Selection::Normal(Cursor {
+                        line: 0,
+                        index: 0,
+                        affinity: current_cursor.affinity,
+                    }));
+                }
+            }
+        })
+        .update_raw_el(clone!((value, focused, dragging) move |raw_el| {
             raw_el.with_entity(clone!((value) move |mut entity| {
                 let handler = entity.world_scope(|world| {
                     register_system(world, move |In(reflect): In<Box<dyn Reflect>>| {
@@ -1293,14 +1309,28 @@ fn numeric_field<T: NumericFieldable>() -> impl Element {
                 entity.insert(FieldListener { handler });
             }))
             .insert(TextInputFocusOnDownDisabled)
-            .on_event_with_system_stop_propagation::<Pointer<DragStart>, _>(clone!((highlighted) move |_: In<_>, mut commands: Commands| {
+            .on_signal_one_shot(focused.signal(), |In((entity, focused)): In<(Entity, bool)>, mut commands: Commands| {
+                if focused {
+                    commands.remove_resource::<CosmicEditCursorPluginDisabled>();
+                }
+                if let Some(mut entity) = commands.get_entity(entity) {
+                    if focused {
+                        entity.insert(CursorDisabled);
+                    } else {
+                        entity.remove::<CursorDisabled>();
+                    }
+                }
+            })
+            .on_event_with_system_stop_propagation::<Pointer<DragStart>, _>(clone!((highlighted, dragging) move |_: In<_>, mut commands: Commands| {
                 commands.insert_resource(CursorOnHoverDisabled);
                 highlighted.set_neq(true);
+                dragging.set_neq(true);
             }))
-            .on_event_with_system_stop_propagation::<Pointer<DragEnd>, _>(move |_: In<_>, mut commands: Commands| {
+            .on_event_with_system_stop_propagation::<Pointer<DragEnd>, _>(clone!((dragging) move |_: In<_>, mut commands: Commands| {
                 commands.remove_resource::<CursorOnHoverDisabled>();
                 highlighted.set_neq(false);
-            })
+                dragging.set_neq(false);
+            }))
             .on_event_with_system_stop_propagation::<Pointer<Drag>, _>(move |In((ui_entity, drag)): In<(Entity, Pointer<Drag>)>,
              accessories: Query<&Accessory>,
              parents: Query<&Parent>,
@@ -1344,7 +1374,32 @@ fn numeric_field<T: NumericFieldable>() -> impl Element {
         .text_signal(value.signal().map(|v| format!("{:.1}", v)))
         .focus_signal(focused.signal())
         .focused_sync(focused.clone())
-        .on_click(move || focused.set_neq(true))
+        .on_click_with_system(move |In((entity, _)), cosmic_sources: Query<&CosmicSource>, mut commands: Commands| {
+            if !dragging.get() {
+                focused.set_neq(true);
+                if let Ok(&CosmicSource(entity)) = cosmic_sources.get(entity) {
+                    commands.insert_resource(CosmicFocusedWidget(Some(entity)))
+                }
+            }
+        })
+        .on_change_with_system(move |In((ui_entity, text)): In<(Entity, String)>, accessories: Query<&Accessory>,
+            parents: Query<&Parent>,
+            sync_components: Query<&SyncComponents>,
+            mut field_path_cache: ResMut<FieldPathCache>,
+            mut commands: Commands| {
+                if let Ok(new) = text.parse::<T::T>() {
+                    if let Ok(Accessory { entity, component, .. }) = accessories.get(ui_entity).cloned() {
+                        let field_path = field_path_cached(ui_entity, &accessories, &parents, &sync_components, &mut field_path_cache);
+                        commands.add(move |world: &mut World| {
+                            with_reflect_mut(world, entity, component, |reflect| {
+                                if let Ok(target) = reflect.reflect_path_mut(&field_path) {
+                                    let _ = target.try_apply(new.as_reflect());
+                                }
+                            });
+                        });
+                    }
+                }
+        })
         .apply(text_input_font_size_style(font_size.signal()))
         .line_height_signal(font_size.signal())
         // TODO: TextAttrs::color_signal typing doesn't like map_bool_signal
@@ -1358,8 +1413,8 @@ fn numeric_field<T: NumericFieldable>() -> impl Element {
                 .flatten().map(Some))
         )
         .cursor_color_signal(unhighlighted_color.signal().map(CursorColor))
-        .fill_color(CosmicBackgroundColor(Color::BLACK))
         .fill_color(CosmicBackgroundColor(Color::NONE))
+        .selection_color_signal(border_color.signal().map(SelectionColor))
         .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
         .apply(border_width_style(BoxEdge::ALL, border_width.signal()))
         .apply(border_color_style(highlighting.signal().map_bool_signal(move || highlighted_color.signal(), move || border_color.signal())))
@@ -1544,6 +1599,13 @@ fn wait_for_nodely(
     }
 }
 
+pub fn deselect_editor_on_esc(i: Res<ButtonInput<KeyCode>>, mut focus: ResMut<CosmicFocusedWidget>, mut commands: Commands) {
+    if i.just_pressed(KeyCode::Escape) {
+        commands.insert_resource(CosmicEditCursorPluginDisabled);
+        focus.0 = None;
+    }
+}
+
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(
         Update,
@@ -1552,10 +1614,11 @@ pub(super) fn plugin(app: &mut App) {
             sync_components.run_if(any_with_component::<SyncComponents>),
             sync_ui.run_if(any_with_component::<FieldListener>),
             wait_for_nodely.run_if(any_with_component::<AfterNodely>),
+            deselect_editor_on_esc,
         ),
     )
     .init_resource::<FieldPathCache>()
-    .insert_resource(CosmidEditCursorPluginDisabled)
+    .insert_resource(CosmicEditCursorPluginDisabled)
     .observe(
         |event: Trigger<EntitiesAdded>, debug_names: Query<DebugName>| {
             let mut entities = ENTITIES.lock_mut();

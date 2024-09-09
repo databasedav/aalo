@@ -34,10 +34,15 @@ fn main() {
                 //     "bevy_window::window::Window",
                 //     ".internal.physical_cursor_position.0",
                 // ))
+                // .target((
+                //     "BoolComponentHolder",
+                //     "test::BoolComponentHolder",
+                //     ".enum_",
+                // ))
                 .target((
-                    "BoolComponentHolder",
-                    "test::BoolComponentHolder",
-                    ".enum_",
+                    "0v1",
+                    "bevy_window::window::Window",
+                    ".resolution",
                 ))
                 // .with_entities(|entities| {
                 //     entities

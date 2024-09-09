@@ -18,21 +18,6 @@ pub mod widgets;
 use inspector::*;
 use style::*;
 
-fn world_inspector(
-    with_entity_inspector: Vec<
-        Box<dyn FnMut(EntityInspector) -> EntityInspector + Send + Sync + 'static>,
-    >,
-) -> EntityInspector {
-    EntityInspector::new()
-        .apply(|mut entity_inspector| {
-            for mut f in with_entity_inspector {
-                entity_inspector = f(entity_inspector);
-            }
-            entity_inspector
-        })
-        .entities(ENTITIES.clone())
-}
-
 struct WorldInspectorConfig {
     inspector_transformers:
         Mutex<Vec<Box<dyn FnOnce(EntityInspector) -> EntityInspector + Send + Sync + 'static>>>,
