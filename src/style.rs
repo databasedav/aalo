@@ -471,8 +471,7 @@ pub fn resize_border<E: Element + Sizeable>(
                         edge_highlighted(BoxEdge::Right)
                             .map_true_signal(clone!((border_width) move || border_width.signal()))
                             .map(Option::unwrap_or_default),
-                    ))
-                    ;
+                    ));
                 for edge in BoxEdge::iter() {
                     el = el.apply(border_width_style(
                         [edge],

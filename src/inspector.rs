@@ -1,18 +1,23 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque}, convert::identity, fmt::Display, i32, sync::{Arc, Mutex}, time::Duration
+    collections::{HashMap, HashSet, VecDeque},
+    convert::identity,
+    fmt::Display,
+    i32,
+    sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use bevy::{
-    color::palettes::css::MAROON,
     ecs::{
         archetype::Archetypes,
-        component::{ComponentId, Components},
+        component::{ComponentHooks, ComponentId, Components, StorageType},
         entity::Entities,
-        system::{BoxedSystem, RunSystemOnce, SystemId, SystemState},
+        system::{BoxedSystem, SystemId, SystemState},
     },
     prelude::*,
     reflect::{
-        Access, DynamicEnum, DynamicStruct, DynamicTuple, DynamicVariant, Enum, OffsetAccess, ParsedPath, ReflectKind, ReflectMut, ReflectRef, TypeInfo, TypeRegistry, VariantInfo
+        Access, DynamicEnum, DynamicStruct, DynamicTuple, DynamicVariant, Enum, OffsetAccess,
+        ParsedPath, ReflectKind, ReflectMut, ReflectRef, TypeInfo, TypeRegistry, VariantInfo,
     },
 };
 use haalka::prelude::*;
@@ -28,15 +33,25 @@ use crate::{impl_syncers, signal_or};
 // TODO: scrollbars
 // TODO: implement frontend for at least all ui node types
 // TODO: `Name` component syncing
-// TODO: document how to make custom type views
-// TODO: popout windows
-// TODO: drag and drop
-// TODO: window resizing
-// TODO: on hover tooltips
+// TODO: drag handle
+// TODO: optional title
+// TODO: on hover tooltips, all errors should be hoverable with tooltips
 // TODO: unit struct handling (a tooltip with "unit struct" should suffice)
+// TODO: custom views for vector/matrix types
+// TODO: should error highlight + affect ordering when enum variant does not have default impl
+// TODO: runtime targeting
+// TODO: searching
+
+// TODO: scroll snapping when scroll to exceeds the element height
+// TODO: when input is focused, hovering it's field path has flakey cursor
+// TODO: live editing parse failures don't surface until input is unfocusedv https://github.com/Dimchikkk/bevy_cosmic_edit/issues/145
+// TODO: document how to make custom type views
+// TODO: multiline text input
+// TODO: popout windows
 // TODO: asset based hot reloadable config
 // TODO: optional limited components viewport within entity
 // TODO: list modification abilities, add, remove, reorder
+// TODO: tab and keyboard navigation
 // TODO: inspector entities appear above resize borders, prolly just wait for https://github.com/bevyengine/bevy/issues/14773
 
 #[derive(Clone, Default)]
@@ -204,6 +219,15 @@ impl ElementWrapper for EntityInspector {
                 Some(wrapper_stack),
             ))
             .apply(background_style(primary_background_color.signal()))
+            // TODO: this should be an .on_click_outside but that requires bevy 0.15
+            .on_click_with_system(
+                |In(_): In<_>, dropped_downs: Query<&DroppedDown>, mut commands: Commands| {
+                    commands.insert_resource(CosmicFocusedWidget(None));
+                    for dropped_down in dropped_downs.iter() {
+                        dropped_down.0.set(false);
+                    }
+                },
+            )
             .cursor(CursorIcon::Default)
     }
 }
@@ -257,11 +281,6 @@ impl EntityInspector {
         self
     }
 
-    // TODO: get position of particular field and automatically scroll to it
-    // pub fn jump_to<'p>(entity: &str, component: &str, path: impl ReflectPath<'p>) {
-
-    // }
-
     pub fn search(mut self) -> Self {
         self.search = Some(Search {
             search: Mutable::new(String::new()),
@@ -270,7 +289,7 @@ impl EntityInspector {
         self
     }
 
-    pub fn target(self, target: impl Into<InspectionTarget>) -> Self {
+    pub fn jump_to(self, target: impl Into<InspectionTarget>) -> Self {
         let target = target.into();
         self.update_raw_el(move |raw_el| {
             raw_el.with_entity(|mut entity| {
@@ -588,7 +607,11 @@ fn get_variant_info(enum_: &dyn Enum, variant: usize) -> Option<&VariantInfo> {
     }
 }
 
-fn populate_enum_with_variant(enum_: &dyn Enum, variant: usize, node_type: &Mutable<Option<NodeType>>) {
+fn populate_enum_with_variant(
+    enum_: &dyn Enum,
+    variant: usize,
+    node_type: &Mutable<Option<NodeType>>,
+) {
     if let Some(variant_info) = get_variant_info(enum_, variant) {
         match variant_info {
             VariantInfo::Struct(struct_info) => {
@@ -599,23 +622,32 @@ fn populate_enum_with_variant(enum_: &dyn Enum, variant: usize, node_type: &Muta
                         fields.push(AccessFieldData::new(access));
                     }
                 }
-                node_type.set(Some(NodeType::Multi { items: fields.into(), size_dynamic: None }));
-            },
+                node_type.set(Some(NodeType::Multi {
+                    items: fields.into(),
+                    size_dynamic: None,
+                }));
+            }
             VariantInfo::Tuple(tuple_info) => {
                 let mut fields = vec![];
                 for i in 0..tuple_info.field_len() {
                     let access = Access::TupleIndex(i);
                     fields.push(AccessFieldData::new(access));
                 }
-                node_type.set(Some(NodeType::Multi { items: fields.into(), size_dynamic: None }));
-            },
+                node_type.set(Some(NodeType::Multi {
+                    items: fields.into(),
+                    size_dynamic: None,
+                }));
+            }
             VariantInfo::Unit(_) => {
                 // TODO: unit enum indicator
                 node_type.take();
-            },
+            }
         }
     }
 }
+
+#[derive(Component)]
+struct DroppedDown(Mutable<bool>);
 
 impl FieldElement {
     fn new(
@@ -868,9 +900,10 @@ impl FieldElement {
                             let dropdown_entity = Mutable::new(None);
                             Dropdown::new(options)
                             .with_show_dropdown(show_dropdown.clone())
-                            .update_raw_el(clone!((access_option, selected, dropdown_entity, node_type) move |raw_el| {
+                            .update_raw_el(clone!((access_option, selected, dropdown_entity, node_type, show_dropdown) move |raw_el| {
                                 raw_el
                                 .insert(Accessory { entity, component, access_option })
+                                .component_signal::<DroppedDown, _>(show_dropdown.signal().map_true(move || DroppedDown(show_dropdown.clone())))
                                 .with_entity(clone!((selected, node_type) move |mut entity| {
                                     dropdown_entity.set_neq(Some(entity.id()));
                                     let handler = entity.world_scope(move |world| {
@@ -890,7 +923,6 @@ impl FieldElement {
                             }))
                             .width(Val::Percent(60.))
                             .selected_signal(selected.signal())
-                            // TODO: this should just take a system instead
                             .option_handler_system(clone!((node_type) move |
                                 In(i),
                                 accessories: Query<&Accessory>,
@@ -907,9 +939,9 @@ impl FieldElement {
                                             with_reflect_mut(world, entity, component, |reflect| {
                                                 if let Ok(target) = reflect.reflect_path_mut(&field_path) {
                                                     if let ReflectMut::Enum(enum_) = target.reflect_mut() {
-                                                        populate_enum_with_variant(enum_, i, &node_type);
                                                         if let Some(variant_info) = get_variant_info(enum_, i) {
                                                             if let Some(default) = variant_default_value(variant_info, &type_registry.read()) {
+                                                                populate_enum_with_variant(enum_, i, &node_type);
                                                                 target.apply(&default);
                                                             }
                                                         }
@@ -1234,7 +1266,16 @@ fn text_input_font_size_style(
 }
 
 pub trait NumericFieldable {
-    type T: Default + PartialEq + Reflect + Copy + std::ops::Add<Self::T, Output = Self::T> + std::ops::Sub<Self::T, Output = Self::T> + Display + num::Bounded + PartialOrd + std::str::FromStr;
+    type T: Default
+        + PartialEq
+        + Reflect
+        + Copy
+        + std::ops::Add<Self::T, Output = Self::T>
+        + std::ops::Sub<Self::T, Output = Self::T>
+        + Display
+        + num::Bounded
+        + PartialOrd
+        + std::str::FromStr;
     const STEP: Self::T;
 }
 
@@ -1262,13 +1303,19 @@ impl_numeric_fieldable!(u128, 1);
 impl_numeric_fieldable!(f32, 0.1);
 impl_numeric_fieldable!(f64, 0.1);
 
+const STARTING_NUMERIC_FIELD_INPUT_WIDTH: f32 = 100.;
+const NUMERIC_FIELD_INPUT_WIDTH_PER_CHAR: f32 = 10.;
+const NUMERIC_FIELD_GROW_THRESHOLD: usize = 4;
+
 fn numeric_field<T: NumericFieldable>() -> impl Element {
+    let background_color = GLOBAL_PRIMARY_BACKGROUND_COLOR.clone();
     let font_size = GLOBAL_FONT_SIZE.clone();
     let highlighted_color = GLOBAL_HIGHLIGHTED_COLOR.clone();
     let unhighlighted_color = GLOBAL_UNHIGHLIGHTED_COLOR.clone();
     let border_radius = GLOBAL_BORDER_RADIUS.clone();
     let border_width = GLOBAL_BORDER_WIDTH.clone();
     let border_color = GLOBAL_BORDER_COLOR.clone();
+    let error_color = GLOBAL_ERROR_COLOR.clone();
     let value = Mutable::new(T::T::default());
     let hovered = Mutable::new(false);
     let focused = Mutable::new(false);
@@ -1276,8 +1323,23 @@ fn numeric_field<T: NumericFieldable>() -> impl Element {
     let highlighting =
         signal_or!(hovered.signal(), focused.signal(), highlighted.signal()).broadcast();
     let dragging = Mutable::new(false);
+    let text = value.signal().map(|v| format!("{:.1}", v)).broadcast();
+    let parse_failed = Mutable::new(false);
+    let focus_dropped = focused.signal().for_each_sync(|_| ());
+    async move {
+        focus_dropped.await;
+        async_world()
+            .apply(|world: &mut World| {
+                world.insert_resource(CosmicEditCursorPluginDisabled);
+            })
+            .await;
+    }
+    .apply(spawn)
+    .detach();
     TextInput::new()
-        .width(Val::Px(100.))
+        // TODO: without this initial static value, width snaps from 100% due to signal runtime lag
+        .width(Val::Px(STARTING_NUMERIC_FIELD_INPUT_WIDTH))
+        .width_signal(text.signal_cloned().map(|text| text.len()).map(|len| STARTING_NUMERIC_FIELD_INPUT_WIDTH + if len > NUMERIC_FIELD_GROW_THRESHOLD { (len - NUMERIC_FIELD_GROW_THRESHOLD) as f32 * NUMERIC_FIELD_INPUT_WIDTH_PER_CHAR } else { 0. }).map(Val::Px))
         .height(Val::Px(30.))
         .cursor(CursorIcon::EwResize)
         .on_signal_with_cosmic_edit(focused.signal(), |entity, focused| {
@@ -1297,7 +1359,7 @@ fn numeric_field<T: NumericFieldable>() -> impl Element {
                 }
             }
         })
-        .update_raw_el(clone!((value, focused, dragging) move |raw_el| {
+        .update_raw_el(clone!((value, focused, dragging, parse_failed) move |raw_el| {
             raw_el.with_entity(clone!((value) move |mut entity| {
                 let handler = entity.world_scope(|world| {
                     register_system(world, move |In(reflect): In<Box<dyn Reflect>>| {
@@ -1309,9 +1371,16 @@ fn numeric_field<T: NumericFieldable>() -> impl Element {
                 entity.insert(FieldListener { handler });
             }))
             .insert(TextInputFocusOnDownDisabled)
-            .on_signal_one_shot(focused.signal(), |In((entity, focused)): In<(Entity, bool)>, mut commands: Commands| {
+            .on_signal_one_shot(focused.signal(), clone!((value) move |In((entity, focused)): In<(Entity, bool)>, mut commands: Commands| {
                 if focused {
                     commands.remove_resource::<CosmicEditCursorPluginDisabled>();
+                } else {
+                    commands.insert_resource(CosmicEditCursorPluginDisabled);
+                    let mut lock = parse_failed.lock_mut();
+                    if *lock {
+                        value.replace_with(|x| *x);
+                        *lock = false;
+                    }
                 }
                 if let Some(mut entity) = commands.get_entity(entity) {
                     if focused {
@@ -1320,7 +1389,7 @@ fn numeric_field<T: NumericFieldable>() -> impl Element {
                         entity.remove::<CursorDisabled>();
                     }
                 }
-            })
+            }))
             .on_event_with_system_stop_propagation::<Pointer<DragStart>, _>(clone!((highlighted, dragging) move |_: In<_>, mut commands: Commands| {
                 commands.insert_resource(CursorOnHoverDisabled);
                 highlighted.set_neq(true);
@@ -1331,64 +1400,32 @@ fn numeric_field<T: NumericFieldable>() -> impl Element {
                 highlighted.set_neq(false);
                 dragging.set_neq(false);
             }))
-            .on_event_with_system_stop_propagation::<Pointer<Drag>, _>(move |In((ui_entity, drag)): In<(Entity, Pointer<Drag>)>,
-             accessories: Query<&Accessory>,
-             parents: Query<&Parent>,
-             sync_components: Query<&SyncComponents>,
-             mut field_path_cache: ResMut<FieldPathCache>,
-             mut commands: Commands| {
-                if let Ok(Accessory { entity, component, .. }) = accessories.get(ui_entity).cloned() {
-                    let new = {
-                        let cur = value.get();
-                        if drag.delta.x > 0. {
-                            if cur <= T::T::max_value() - T::STEP {
-                                cur + T::STEP
-                            } else {
-                                return
-                            }
-                        } else if drag.delta.x < 0. {
-                            if cur >= T::T::min_value() + T::STEP {
-                                cur - T::STEP
-                            } else {
-                                return
-                            }
-                        } else {
-                            return
-                        }
-                    };
-                    let field_path = field_path_cached(ui_entity, &accessories, &parents, &sync_components, &mut field_path_cache);
-                    commands.add(move |world: &mut World| {
-                        with_reflect_mut(world, entity, component, |reflect| {
-                            if let Ok(target) = reflect.reflect_path_mut(&field_path) {
-                                let _ = target.try_apply(new.as_reflect());
-                            }
-                        });
-                    });
-                }
-            })
-        }))
-        .hovered_sync(hovered.clone())
-        .mode(CosmicWrap::InfiniteLine)
-        .max_lines(MaxLines(1))
-        .scroll_disabled()
-        .text_signal(value.signal().map(|v| format!("{:.1}", v)))
-        .focus_signal(focused.signal())
-        .focused_sync(focused.clone())
-        .on_click_with_system(move |In((entity, _)), cosmic_sources: Query<&CosmicSource>, mut commands: Commands| {
-            if !dragging.get() {
-                focused.set_neq(true);
-                if let Ok(&CosmicSource(entity)) = cosmic_sources.get(entity) {
-                    commands.insert_resource(CosmicFocusedWidget(Some(entity)))
-                }
-            }
-        })
-        .on_change_with_system(move |In((ui_entity, text)): In<(Entity, String)>, accessories: Query<&Accessory>,
-            parents: Query<&Parent>,
-            sync_components: Query<&SyncComponents>,
-            mut field_path_cache: ResMut<FieldPathCache>,
-            mut commands: Commands| {
-                if let Ok(new) = text.parse::<T::T>() {
+            .on_event_with_system_stop_propagation::<Pointer<Drag>, _>(move |
+                In((ui_entity, drag)): In<(Entity, Pointer<Drag>)>,
+                accessories: Query<&Accessory>,
+                parents: Query<&Parent>,
+                sync_components: Query<&SyncComponents>,
+                mut field_path_cache: ResMut<FieldPathCache>,
+                mut commands: Commands| {
                     if let Ok(Accessory { entity, component, .. }) = accessories.get(ui_entity).cloned() {
+                        let new = {
+                            let cur = value.get();
+                            if drag.delta.x > 0. {
+                                if cur <= T::T::max_value() - T::STEP {
+                                    cur + T::STEP
+                                } else {
+                                    return
+                                }
+                            } else if drag.delta.x < 0. {
+                                if cur >= T::T::min_value() + T::STEP {
+                                    cur - T::STEP
+                                } else {
+                                    return
+                                }
+                            } else {
+                                return
+                            }
+                        };
                         let field_path = field_path_cached(ui_entity, &accessories, &parents, &sync_components, &mut field_path_cache);
                         commands.add(move |world: &mut World| {
                             with_reflect_mut(world, entity, component, |reflect| {
@@ -1399,7 +1436,47 @@ fn numeric_field<T: NumericFieldable>() -> impl Element {
                         });
                     }
                 }
+            )
+        }))
+        .hovered_sync(hovered.clone())
+        .mode(CosmicWrap::InfiniteLine)
+        .max_lines(MaxLines(1))
+        .scroll_disabled()
+        .text_signal(text.signal_cloned())
+        .focus_signal(focused.signal())
+        .focused_sync(focused.clone())
+        .on_click_with_system(move |In((entity, _)), cosmic_sources: Query<&CosmicSource>, mut commands: Commands| {
+            if !dragging.get() {
+                focused.set_neq(true);
+                if let Ok(&CosmicSource(entity)) = cosmic_sources.get(entity) {
+                    commands.insert_resource(CosmicFocusedWidget(Some(entity)))
+                }
+            }
         })
+        .on_change_with_system(clone!((parse_failed) move |
+            In((ui_entity, text)): In<(Entity, String)>,
+            accessories: Query<&Accessory>,
+            parents: Query<&Parent>,
+            sync_components: Query<&SyncComponents>,
+            mut field_path_cache: ResMut<FieldPathCache>,
+            mut commands: Commands| {
+                if let Ok(new) = text.parse::<T::T>() {
+                    parse_failed.set_neq(false);
+                    if let Ok(Accessory { entity, component, .. }) = accessories.get(ui_entity).cloned() {
+                        let field_path = field_path_cached(ui_entity, &accessories, &parents, &sync_components, &mut field_path_cache);
+                        commands.add(move |world: &mut World| {
+                            with_reflect_mut(world, entity, component, |reflect| {
+                                if let Ok(target) = reflect.reflect_path_mut(&field_path) {
+                                    let _ = target.try_apply(new.as_reflect());
+                                }
+                            });
+                        });
+                    }
+                } else {
+                    parse_failed.set_neq(true);
+                }
+            }
+        ))
         .apply(text_input_font_size_style(font_size.signal()))
         .line_height_signal(font_size.signal())
         // TODO: TextAttrs::color_signal typing doesn't like map_bool_signal
@@ -1408,21 +1485,47 @@ fn numeric_field<T: NumericFieldable>() -> impl Element {
             .family(FamilyOwned::new(Family::Name("Fira Mono")))
             .weight(FontWeight::MEDIUM)
             .color_signal(
-                highlighting.signal()
-                .map_bool(clone!((highlighted_color) move || highlighted_color.signal()), clone!((unhighlighted_color) move || unhighlighted_color.signal()))
-                .flatten().map(Some))
+                clone!((error_color, highlighted_color, unhighlighted_color) map_ref! {
+                    let &highlighting = highlighting.signal(),
+                    let &parse_failed = parse_failed.signal() => {
+                        if parse_failed {
+                            error_color.signal()
+                        } else if highlighting {
+                            highlighted_color.signal()
+                        } else {
+                            unhighlighted_color.signal()
+                        }
+                    }
+                })
+                .flatten()
+                .map(Some)
+            )
         )
         .cursor_color_signal(unhighlighted_color.signal().map(CursorColor))
-        .fill_color(CosmicBackgroundColor(Color::NONE))
+        .fill_color_signal(background_color.signal().map(CosmicBackgroundColor))
         .selection_color_signal(border_color.signal().map(SelectionColor))
         .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
         .apply(border_width_style(BoxEdge::ALL, border_width.signal()))
-        .apply(border_color_style(highlighting.signal().map_bool_signal(move || highlighted_color.signal(), move || border_color.signal())))
+        .apply(border_color_style(parse_failed.signal().map_bool_signal(clone!((error_color) move || error_color.signal()), move || highlighting.signal().map_bool_signal(clone!((highlighted_color) move || highlighted_color.signal()), clone!((border_color) move || border_color.signal())))))
 }
 
-#[derive(Component, Clone)]
+#[derive(Clone)]
 struct FieldListener {
     handler: SystemId<Box<dyn Reflect>>,
+}
+
+impl Component for FieldListener {
+    const STORAGE_TYPE: StorageType = StorageType::Table;
+
+    fn register_component_hooks(hooks: &mut ComponentHooks) {
+        hooks.on_remove(|mut world, entity, _| {
+            if let Some(&FieldListener { handler }) = world.get::<Self>(entity) {
+                let _ = world.commands().add(move |world: &mut World| {
+                    let _ = world.remove_system(handler);
+                });
+            }
+        });
+    }
 }
 
 #[derive(Component, Clone, Debug)]
@@ -1599,10 +1702,21 @@ fn wait_for_nodely(
     }
 }
 
-pub fn deselect_editor_on_esc(i: Res<ButtonInput<KeyCode>>, mut focus: ResMut<CosmicFocusedWidget>, mut commands: Commands) {
-    if i.just_pressed(KeyCode::Escape) {
-        commands.insert_resource(CosmicEditCursorPluginDisabled);
+fn deselect_editor_on_keys(
+    input: Res<ButtonInput<KeyCode>>,
+    mut focus: ResMut<CosmicFocusedWidget>,
+) {
+    if input.any_just_pressed([KeyCode::Escape, KeyCode::Enter]) {
         focus.0 = None;
+    }
+}
+
+fn left_align_editors(
+    mut cosmic_editors: Query<&mut CosmicEditor>,
+    mut font_system: ResMut<CosmicFontSystem>,
+) {
+    for mut cosmic_editor in cosmic_editors.iter_mut() {
+        cosmic_editor.action(&mut font_system.0, Action::Motion(Motion::Home));
     }
 }
 
@@ -1614,7 +1728,14 @@ pub(super) fn plugin(app: &mut App) {
             sync_components.run_if(any_with_component::<SyncComponents>),
             sync_ui.run_if(any_with_component::<FieldListener>),
             wait_for_nodely.run_if(any_with_component::<AfterNodely>),
-            deselect_editor_on_esc,
+            (
+                deselect_editor_on_keys,
+                left_align_editors.run_if(
+                    resource_changed::<CosmicFocusedWidget>
+                        .and_then(|focused: Res<CosmicFocusedWidget>| focused.0.is_none()),
+                ),
+            )
+                .chain(),
         ),
     )
     .init_resource::<FieldPathCache>()

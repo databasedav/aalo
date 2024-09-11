@@ -20,5 +20,7 @@ pub static GLOBAL_UNHIGHLIGHTED_COLOR: Lazy<Mutable<Color>> =
     Lazy::new(|| Mutable::new(DEFAULT_UNHIGHLIGHTED_COLOR));
 pub static GLOBAL_BORDER_COLOR: Lazy<Mutable<Color>> =
     Lazy::new(|| Mutable::new(DEFAULT_BORDER_COLOR));
+pub static GLOBAL_ERROR_COLOR: Lazy<Mutable<Color>> =
+    Lazy::new(|| Mutable::new(DEFAULT_ERROR_COLOR));
 pub static GLOBAL_SCROLL_PIXELS: Lazy<Mutable<f32>> =
     Lazy::new(|| Mutable::new(DEFAULT_SCROLL_PIXELS));

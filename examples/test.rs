@@ -28,22 +28,17 @@ fn main() {
             HaalkaPlugin,
             // style::plugin,
             AaloPlugin::new().world().with_inspector(|inspector| {
-                inspector
-                // .target((
-                //     "0v1",
-                //     "bevy_window::window::Window",
-                //     ".internal.physical_cursor_position.0",
-                // ))
-                // .target((
-                //     "BoolComponentHolder",
-                //     "test::BoolComponentHolder",
-                //     ".enum_",
-                // ))
-                .target((
+                inspector.jump_to((
                     "0v1",
                     "bevy_window::window::Window",
-                    ".resolution",
+                    ".internal.physical_cursor_position.0",
                 ))
+                // .jump_to(("BoolComponentHolder", "test::BoolComponentHolder", ".enum_"))
+                // .jump_to((
+                //     "0v1",
+                //     "bevy_window::window::Window",
+                //     ".resolution",
+                // ))
                 // .with_entities(|entities| {
                 //     entities
                 //         .filter(|(_, EntityData { name, .. })| {
@@ -90,7 +85,7 @@ fn camera(mut commands: Commands) {
 enum TestEnum {
     D,
     Y(bool, bool),
-    B(f32),
+    B(u8),
     A(String),
     J { a: f32, b: String },
     C(BoolComponent),
@@ -99,7 +94,7 @@ enum TestEnum {
 
 impl Default for TestEnum {
     fn default() -> Self {
-        Self::B(20.)
+        Self::B(255)
     }
 }
 
@@ -135,11 +130,14 @@ fn setup(mut commands: Commands) {
     commands.spawn((FloatWrapper(20.), Name::new("FloatWrapper")));
     commands.spawn((BoolComponent::default(), Name::new("BoolComponent")));
     commands.spawn((TestEnum::default(), Name::new("TestEnum")));
-    commands.spawn((BoolComponentHolder {
-        bool_3: vec![true, false],
-        bool_4: (false, default(), vec![false, true]),
-        ..default()
-    }, Name::new("BoolComponentHolder")));
+    commands.spawn((
+        BoolComponentHolder {
+            bool_3: vec![true, false],
+            bool_4: (false, default(), vec![false, true]),
+            ..default()
+        },
+        Name::new("BoolComponentHolder"),
+    ));
 }
 
 fn ui_root(world: &mut World) {

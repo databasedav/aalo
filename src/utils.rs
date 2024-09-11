@@ -42,3 +42,13 @@ macro_rules! signal_or {
         signal::or($first, signal_or!($($rest),+))
     };
 }
+
+#[macro_export]
+macro_rules! signal_and {
+    ($signal:expr) => {
+        $signal
+    };
+    ($first:expr, $($rest:expr),+) => {
+        signal::and($first, signal_and!($($rest),+))
+    };
+}

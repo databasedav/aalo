@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use haalka::prelude::*;
-use strum::{EnumIter, Display};
+use strum::{Display, EnumIter};
 
 fn main() {
     App::new()
