@@ -3,6 +3,9 @@ use std::{
     convert::identity,
     fmt::Display,
     i32,
+    ops::DerefMut,
+    pin::Pin,
+    str::FromStr,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -44,7 +47,7 @@ use crate::{impl_syncers, signal_or};
 
 // TODO: scroll snapping when scroll to exceeds the element height
 // TODO: when input is focused, hovering it's field path has flakey cursor
-// TODO: live editing parse failures don't surface until input is unfocusedv https://github.com/Dimchikkk/bevy_cosmic_edit/issues/145
+// TODO: live editing parse failures don't surface until input is unfocused https://github.com/Dimchikkk/bevy_cosmic_edit/issues/145
 // TODO: document how to make custom type views
 // TODO: multiline text input
 // TODO: popout windows
@@ -53,6 +56,7 @@ use crate::{impl_syncers, signal_or};
 // TODO: list modification abilities, add, remove, reorder
 // TODO: tab and keyboard navigation
 // TODO: inspector entities appear above resize borders, prolly just wait for https://github.com/bevyengine/bevy/issues/14773
+// TODO: dropdowns cannot extend past bounds of inspector
 
 #[derive(Clone, Default)]
 pub struct EntityData {
@@ -219,7 +223,7 @@ impl ElementWrapper for EntityInspector {
                 Some(wrapper_stack),
             ))
             .apply(background_style(primary_background_color.signal()))
-            // TODO: this should be an .on_click_outside but that requires bevy 0.15
+            // TODO: this should be an .on_click_outside on the actual elements themselves but that requires bevy 0.15
             .on_click_with_system(
                 |In(_): In<_>, dropped_downs: Query<&DroppedDown>, mut commands: Commands| {
                     commands.insert_resource(CosmicFocusedWidget(None));
@@ -1265,6 +1269,205 @@ fn text_input_font_size_style(
     }
 }
 
+#[derive(Component)]
+struct Dragging;
+
+// TODO: get this from futures-signals https://github.com/Pauan/rust-signals/pull/85
+pub type SyncBoxSignal<'a, T> = Pin<Box<dyn Signal<Item = T> + Send + Sync + 'a>>;
+
+#[derive(Default)]
+struct TextInputField<T, F> {
+    el: TextInput,
+    initial: T,
+    formatter: F,
+    highlight: Mutable<bool>, // wrap in option when don't want to provide impl_syncer
+    border_color_option: Option<SyncBoxSignal<'static, Option<Color>>>,
+    text_color_option: Option<SyncBoxSignal<'static, Option<Color>>>,
+    focused: Option<Mutable<bool>>,
+    value: Option<Mutable<T>>,
+}
+
+impl<T, F> TextInputField<T, F> {
+    fn new(initial: T, formatter: F) -> Self {
+        Self {
+            el: TextInput::new(),
+            initial,
+            formatter,
+            highlight: Mutable::new(false),
+            border_color_option: None,
+            text_color_option: None,
+            focused: None,
+            value: None,
+        }
+    }
+
+    fn with_value(mut self, value: Mutable<T>) -> Self {
+        self.value = Some(value);
+        self
+    }
+
+    fn with_focused(mut self, focused: Mutable<bool>) -> Self {
+        self.focused = Some(focused);
+        self
+    }
+
+    fn with_highlight(mut self, highlight: Mutable<bool>) -> Self {
+        self.highlight = highlight;
+        self
+    }
+
+    fn with_border_color_option(
+        mut self,
+        border_color_option: impl Signal<Item = Option<Color>> + Send + Sync + 'static,
+    ) -> Self {
+        self.border_color_option = Some(boxed_sync(border_color_option));
+        self
+    }
+
+    fn with_text_color_option(
+        mut self,
+        text_color_option: impl Signal<Item = Option<Color>> + Send + Sync + 'static,
+    ) -> Self {
+        self.text_color_option = Some(boxed_sync(text_color_option));
+        self
+    }
+}
+
+impl<T: Send + Sync + PartialEq + Reflect + Clone, F: Fn(T) -> String + Send + Sync + 'static>
+    ElementWrapper for TextInputField<T, F>
+{
+    type EL = TextInput;
+    fn element_mut(&mut self) -> &mut Self::EL {
+        &mut self.el
+    }
+
+    fn into_el(self) -> Self::EL {
+        let background_color = GLOBAL_PRIMARY_BACKGROUND_COLOR.clone();
+        let font_size = GLOBAL_FONT_SIZE.clone();
+        let highlighted_color = GLOBAL_HIGHLIGHTED_COLOR.clone();
+        let unhighlighted_color = GLOBAL_UNHIGHLIGHTED_COLOR.clone();
+        let border_radius = GLOBAL_BORDER_RADIUS.clone();
+        let border_width = GLOBAL_BORDER_WIDTH.clone();
+        let border_color = GLOBAL_BORDER_COLOR.clone();
+        let value = self.value.unwrap_or_else(|| Mutable::new(self.initial));
+        let hovered = Mutable::new(false);
+        let focused = self.focused.unwrap_or_else(|| Mutable::new(false));
+        let highlight = self.highlight;
+        let highlighting =
+            signal_or!(hovered.signal(), focused.signal(), highlight.signal()).broadcast();
+        let text = value.signal_cloned().map(self.formatter).broadcast();
+        self.el
+            // TODO: without this initial static value, width snaps from 100% due to signal runtime lag
+            .width(Val::Px(STARTING_NUMERIC_FIELD_INPUT_WIDTH))
+            .width_signal(text.signal_cloned().map(|text| text.len()).map(|len| STARTING_NUMERIC_FIELD_INPUT_WIDTH + if len > NUMERIC_FIELD_GROW_THRESHOLD { (len - NUMERIC_FIELD_GROW_THRESHOLD) as f32 * NUMERIC_FIELD_INPUT_WIDTH_PER_CHAR } else { 0. }).map(Val::Px))
+            .height(Val::Px(30.))
+            .cursor(CursorIcon::EwResize)
+            .on_signal_with_cosmic_edit(focused.signal(), |entity, focused| {
+                if focused {
+                    let id = entity.id();
+                    let world = entity.into_world_mut();
+                    let mut system_state = SystemState::<(Query<&mut CosmicEditor>, ResMut<CosmicFontSystem>)>::new(world);
+                    let (mut cosmic_editors, mut font_system) = system_state.get_mut(world);
+                    if let Ok(mut cosmic_editor) = cosmic_editors.get_mut(id) {
+                        cosmic_editor.action(&mut font_system.0, Action::Motion(Motion::BufferEnd));
+                        let current_cursor = cosmic_editor.cursor();
+                        cosmic_editor.set_selection(Selection::Normal(Cursor {
+                            line: 0,
+                            index: 0,
+                            affinity: current_cursor.affinity,
+                        }));
+                    }
+                }
+            })
+            .update_raw_el(clone!((value, focused) move |raw_el| {
+                raw_el
+                .on_remove(|world, _| {
+                    world.commands().insert_resource(CosmicEditCursorPluginDisabled);
+                })
+                .with_entity(clone!((value) move |mut entity| {
+                    let handler = entity.world_scope(|world| {
+                        register_system(world, move |In(reflect): In<Box<dyn Reflect>>| {
+                            if let Ok(cur) = reflect.downcast::<T>() {
+                                value.set_neq(*cur);
+                            }
+                        })
+                    });
+                    entity.insert(FieldListener { handler });
+                }))
+                .on_signal_one_shot(focused.signal(), move |In((entity, focused)): In<(Entity, bool)>, mut commands: Commands| {
+                    if focused {
+                        commands.remove_resource::<CosmicEditCursorPluginDisabled>();
+                    } else {
+                        commands.insert_resource(CosmicEditCursorPluginDisabled);
+                    }
+                    if let Some(mut entity) = commands.get_entity(entity) {
+                        if focused {
+                            entity.insert(CursorDisabled);
+                        } else {
+                            entity.remove::<CursorDisabled>();
+                        }
+                    }
+                })
+            }))
+            .hovered_sync(hovered.clone())
+            .text_signal(text.signal_cloned())
+            .focus_signal(focused.signal())
+            .focused_sync(focused.clone())
+            .apply(text_input_font_size_style(font_size.signal()))
+            .line_height_signal(font_size.signal())
+            .attrs(
+                TextAttrs::new()
+                .family(FamilyOwned::new(Family::Name("Fira Mono")))
+                .weight(FontWeight::MEDIUM)
+                .color_signal(signal_short_circuit(self.text_color_option, highlighting.signal(), highlighted_color.signal(), unhighlighted_color.signal()).map(Some))
+            )
+            .cursor_color_signal(unhighlighted_color.signal().map(CursorColor))
+            .fill_color_signal(background_color.signal().map(CosmicBackgroundColor))
+            .selection_color_signal(border_color.signal().map(SelectionColor))
+            .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
+            .apply(border_width_style(BoxEdge::ALL, border_width.signal()))
+            .apply(border_color_style(signal_short_circuit(self.border_color_option, highlighting.signal(), highlighted_color.signal(), border_color.signal())))
+    }
+}
+
+fn signal_short_circuit<T: Copy + Send + Sync + 'static>(
+    short_circuit_option: Option<impl Signal<Item = Option<T>> + Send + Sync + 'static>,
+    bool_signal: impl Signal<Item = bool> + Send + Sync + 'static,
+    true_signal: impl Signal<Item = T> + Send + Sync + 'static,
+    false_signal: impl Signal<Item = T> + Send + Sync + 'static,
+) -> impl Signal<Item = T> {
+    let true_signal = true_signal.broadcast();
+    let false_signal = false_signal.broadcast();
+    let alt_path = bool_signal
+        .map_bool_signal(
+            clone!((true_signal) move || true_signal.signal().apply(boxed_sync)),
+            clone!((false_signal) move || false_signal.signal().apply(boxed_sync)),
+        )
+        .broadcast();
+    if let Some(short_circuit_option) = short_circuit_option {
+        short_circuit_option
+            .map_option(
+                |x| always(x).apply(boxed_sync),
+                clone!((alt_path) move || alt_path.signal().apply(boxed_sync)),
+            )
+            .flatten()
+            .apply(SignalEither::Left)
+    } else {
+        alt_path.signal().apply(SignalEither::Right)
+    }
+}
+
+fn boxed_sync<'a, S, T>(signal: S) -> Pin<Box<dyn Signal<Item = T> + Send + Sync + 'a>>
+where
+    S: Sized + Send + Sync + Signal<Item = T> + 'a,
+{
+    Box::pin(signal)
+}
+
+// fn text_input_field<T: Reflect + PartialEq + FromStr>(starting_value: T, format_func: impl Fn(&T) -> String + Send + Sync + 'static) -> TextInput {
+
+// }
+
 pub trait NumericFieldable {
     type T: Default
         + PartialEq
@@ -1275,7 +1478,8 @@ pub trait NumericFieldable {
         + Display
         + num::Bounded
         + PartialOrd
-        + std::str::FromStr;
+        + std::str::FromStr
+        + TypePath;
     const STEP: Self::T;
 }
 
@@ -1308,96 +1512,44 @@ const NUMERIC_FIELD_INPUT_WIDTH_PER_CHAR: f32 = 10.;
 const NUMERIC_FIELD_GROW_THRESHOLD: usize = 4;
 
 fn numeric_field<T: NumericFieldable>() -> impl Element {
-    let background_color = GLOBAL_PRIMARY_BACKGROUND_COLOR.clone();
-    let font_size = GLOBAL_FONT_SIZE.clone();
-    let highlighted_color = GLOBAL_HIGHLIGHTED_COLOR.clone();
-    let unhighlighted_color = GLOBAL_UNHIGHLIGHTED_COLOR.clone();
-    let border_radius = GLOBAL_BORDER_RADIUS.clone();
-    let border_width = GLOBAL_BORDER_WIDTH.clone();
-    let border_color = GLOBAL_BORDER_COLOR.clone();
-    let error_color = GLOBAL_ERROR_COLOR.clone();
-    let value = Mutable::new(T::T::default());
-    let hovered = Mutable::new(false);
-    let focused = Mutable::new(false);
-    let highlighted = Mutable::new(false);
-    let highlighting =
-        signal_or!(hovered.signal(), focused.signal(), highlighted.signal()).broadcast();
     let dragging = Mutable::new(false);
-    let text = value.signal().map(|v| format!("{:.1}", v)).broadcast();
     let parse_failed = Mutable::new(false);
-    let focus_dropped = focused.signal().for_each_sync(|_| ());
-    async move {
-        focus_dropped.await;
-        async_world()
-            .apply(|world: &mut World| {
-                world.insert_resource(CosmicEditCursorPluginDisabled);
-            })
-            .await;
-    }
-    .apply(spawn)
-    .detach();
-    TextInput::new()
-        // TODO: without this initial static value, width snaps from 100% due to signal runtime lag
-        .width(Val::Px(STARTING_NUMERIC_FIELD_INPUT_WIDTH))
-        .width_signal(text.signal_cloned().map(|text| text.len()).map(|len| STARTING_NUMERIC_FIELD_INPUT_WIDTH + if len > NUMERIC_FIELD_GROW_THRESHOLD { (len - NUMERIC_FIELD_GROW_THRESHOLD) as f32 * NUMERIC_FIELD_INPUT_WIDTH_PER_CHAR } else { 0. }).map(Val::Px))
-        .height(Val::Px(30.))
-        .cursor(CursorIcon::EwResize)
-        .on_signal_with_cosmic_edit(focused.signal(), |entity, focused| {
-            if focused {
-                let id = entity.id();
-                let world = entity.into_world_mut();
-                let mut system_state = SystemState::<(Query<&mut CosmicEditor>, ResMut<CosmicFontSystem>)>::new(world);
-                let (mut cosmic_editors, mut font_system) = system_state.get_mut(world);
-                if let Ok(mut cosmic_editor) = cosmic_editors.get_mut(id) {
-                    cosmic_editor.action(&mut font_system.0, Action::Motion(Motion::BufferEnd));
-                    let current_cursor = cosmic_editor.cursor();
-                    cosmic_editor.set_selection(Selection::Normal(Cursor {
-                        line: 0,
-                        index: 0,
-                        affinity: current_cursor.affinity,
-                    }));
-                }
-            }
-        })
-        .update_raw_el(clone!((value, focused, dragging, parse_failed) move |raw_el| {
-            raw_el.with_entity(clone!((value) move |mut entity| {
-                let handler = entity.world_scope(|world| {
-                    register_system(world, move |In(reflect): In<Box<dyn Reflect>>| {
-                        if let Ok(cur) = reflect.downcast::<T::T>() {
-                            value.set_neq(*cur);
-                        }
-                    })
-                });
-                entity.insert(FieldListener { handler });
-            }))
+    let highlight = Mutable::new(false);
+    let focused = Mutable::new(false);
+    let value = Mutable::new(T::T::default());
+    let error_color = GLOBAL_ERROR_COLOR.clone();
+    let parse_failure_color = parse_failed
+        .signal()
+        .map_true_signal(move || error_color.signal())
+        .broadcast();
+    // TODO: float formatting should be configurable
+    TextInputField::new(T::T::default(), |x| format!("{:.1}", x))
+        .with_value(value.clone())
+        .with_focused(focused.clone())
+        .with_highlight(highlight.clone())
+        .with_border_color_option(parse_failure_color.signal())
+        .with_text_color_option(parse_failure_color.signal())
+        .update_raw_el(clone!((value, parse_failed, focused, dragging) move |raw_el| {
+            raw_el
             .insert(TextInputFocusOnDownDisabled)
-            .on_signal_one_shot(focused.signal(), clone!((value) move |In((entity, focused)): In<(Entity, bool)>, mut commands: Commands| {
-                if focused {
-                    commands.remove_resource::<CosmicEditCursorPluginDisabled>();
-                } else {
-                    commands.insert_resource(CosmicEditCursorPluginDisabled);
+            .on_signal_sync(focused.signal(), clone!((value) move |_, focused| {
+                if !focused {
                     let mut lock = parse_failed.lock_mut();
                     if *lock {
-                        value.replace_with(|x| *x);
+                        value.lock_mut().deref_mut();
+                        // value.replace_with(|x| *x);
                         *lock = false;
                     }
                 }
-                if let Some(mut entity) = commands.get_entity(entity) {
-                    if focused {
-                        entity.insert(CursorDisabled);
-                    } else {
-                        entity.remove::<CursorDisabled>();
-                    }
-                }
             }))
-            .on_event_with_system_stop_propagation::<Pointer<DragStart>, _>(clone!((highlighted, dragging) move |_: In<_>, mut commands: Commands| {
+            .on_event_with_system_stop_propagation::<Pointer<DragStart>, _>(clone!((highlight, dragging) move |_: In<_>, mut commands: Commands| {
                 commands.insert_resource(CursorOnHoverDisabled);
-                highlighted.set_neq(true);
+                highlight.set_neq(true);
                 dragging.set_neq(true);
             }))
             .on_event_with_system_stop_propagation::<Pointer<DragEnd>, _>(clone!((dragging) move |_: In<_>, mut commands: Commands| {
                 commands.remove_resource::<CursorOnHoverDisabled>();
-                highlighted.set_neq(false);
+                highlight.set_neq(false);
                 dragging.set_neq(false);
             }))
             .on_event_with_system_stop_propagation::<Pointer<Drag>, _>(move |
@@ -1438,19 +1590,19 @@ fn numeric_field<T: NumericFieldable>() -> impl Element {
                 }
             )
         }))
-        .hovered_sync(hovered.clone())
+        .into_el()
         .mode(CosmicWrap::InfiniteLine)
         .max_lines(MaxLines(1))
         .scroll_disabled()
-        .text_signal(text.signal_cloned())
-        .focus_signal(focused.signal())
-        .focused_sync(focused.clone())
-        .on_click_with_system(move |In((entity, _)), cosmic_sources: Query<&CosmicSource>, mut commands: Commands| {
-            if !dragging.get() {
-                focused.set_neq(true);
-                if let Ok(&CosmicSource(entity)) = cosmic_sources.get(entity) {
-                    commands.insert_resource(CosmicFocusedWidget(Some(entity)))
+        .on_click_with_system(move |In((entity, _)), mut click: ListenerMut<Pointer<Click>>, cosmic_sources: Query<&CosmicSource>, mut commands: Commands| {
+            if matches!(click.button, PointerButton::Primary) {
+                if !dragging.get() {
+                    focused.set_neq(true);
+                    if let Ok(&CosmicSource(entity)) = cosmic_sources.get(entity) {
+                        commands.insert_resource(CosmicFocusedWidget(Some(entity)))
+                    }
                 }
+                click.stop_propagation();
             }
         })
         .on_change_with_system(clone!((parse_failed) move |
@@ -1477,36 +1629,6 @@ fn numeric_field<T: NumericFieldable>() -> impl Element {
                 }
             }
         ))
-        .apply(text_input_font_size_style(font_size.signal()))
-        .line_height_signal(font_size.signal())
-        // TODO: TextAttrs::color_signal typing doesn't like map_bool_signal
-        .attrs(
-            TextAttrs::new()
-            .family(FamilyOwned::new(Family::Name("Fira Mono")))
-            .weight(FontWeight::MEDIUM)
-            .color_signal(
-                clone!((error_color, highlighted_color, unhighlighted_color) map_ref! {
-                    let &highlighting = highlighting.signal(),
-                    let &parse_failed = parse_failed.signal() => {
-                        if parse_failed {
-                            error_color.signal()
-                        } else if highlighting {
-                            highlighted_color.signal()
-                        } else {
-                            unhighlighted_color.signal()
-                        }
-                    }
-                })
-                .flatten()
-                .map(Some)
-            )
-        )
-        .cursor_color_signal(unhighlighted_color.signal().map(CursorColor))
-        .fill_color_signal(background_color.signal().map(CosmicBackgroundColor))
-        .selection_color_signal(border_color.signal().map(SelectionColor))
-        .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
-        .apply(border_width_style(BoxEdge::ALL, border_width.signal()))
-        .apply(border_color_style(parse_failed.signal().map_bool_signal(clone!((error_color) move || error_color.signal()), move || highlighting.signal().map_bool_signal(clone!((highlighted_color) move || highlighted_color.signal()), clone!((border_color) move || border_color.signal())))))
 }
 
 #[derive(Clone)]

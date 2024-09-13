@@ -28,12 +28,13 @@ fn main() {
             HaalkaPlugin,
             // style::plugin,
             AaloPlugin::new().world().with_inspector(|inspector| {
-                inspector.jump_to((
-                    "0v1",
-                    "bevy_window::window::Window",
-                    ".internal.physical_cursor_position.0",
-                ))
-                // .jump_to(("BoolComponentHolder", "test::BoolComponentHolder", ".enum_"))
+                inspector
+                    // .jump_to((
+                    //     "0v1",
+                    //     "bevy_window::window::Window",
+                    //     ".internal.physical_cursor_position.0",
+                    // ))
+                    .jump_to(("BoolComponentHolder", "test::BoolComponentHolder", ".enum_"))
                 // .jump_to((
                 //     "0v1",
                 //     "bevy_window::window::Window",
