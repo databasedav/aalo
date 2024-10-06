@@ -252,7 +252,12 @@ impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for 
         let height = map_ref! {
             let font_size = font_size.signal(),
             let padding = padding.signal(),
-            let border_width = border_width.signal() => *font_size + *padding * 2. + *border_width * 2. + 2.  // TODO: where did this 2. come from ?
+            let border_width = border_width.signal() => {
+                // TODO: where did this last 2. come from ?
+                let height = *font_size + *padding * 2. + *border_width * 2. + 2.;
+                // println!("dropdown height: {}", height);
+                height
+            }
         }
         .broadcast();
         let hovered = Mutable::new(false);
@@ -373,6 +378,7 @@ impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for 
 }
 
 impl<T: Clone + PartialEq + Display + Send + Sync + 'static> Sizeable for Dropdown<T> {}
+impl<T: Clone + PartialEq + Display + Send + Sync + 'static> PointerEventAware for Dropdown<T> {}
 
 impl<T> Dropdown<T> {
     pub fn new(options: MutableVec<OptionData<T>>) -> Self

@@ -4,7 +4,7 @@ use bevy::{
 };
 use globals::{GLOBAL_BORDER_COLOR, GLOBAL_HIGHLIGHTED_COLOR, GLOBAL_UNHIGHLIGHTED_COLOR};
 use haalka::prelude::*;
-use inspector::ENTITIES;
+use inspector::ORPHAN_ENTITIES;
 use std::sync::Mutex;
 
 pub mod defaults;
@@ -125,12 +125,13 @@ impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {
                             ..default()
                         })
                     })
+                    .ui_root()
                     .width(Val::Percent(100.))
                     .height(Val::Percent(100.))
                     .cursor(CursorIcon::Default)
                     .child({
                         EntityInspector::new()
-                            .entities(ENTITIES.clone())
+                            .entities(ORPHAN_ENTITIES.clone())
                             .apply(|mut entity_inspector| {
                                 if let Some(WorldInspectorTransformers { transformers }) =
                                     world.remove_resource::<WorldInspectorTransformers>()

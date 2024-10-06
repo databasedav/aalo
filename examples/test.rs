@@ -95,7 +95,10 @@ enum TestEnum {
 
 impl Default for TestEnum {
     fn default() -> Self {
-        Self::B(255)
+        Self::J {
+            a: 0.,
+            b: "test".into(),
+        }
     }
 }
 
