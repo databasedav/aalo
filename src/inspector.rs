@@ -3,7 +3,7 @@ use std::{
     convert::identity,
     fmt::Display,
     i32,
-    ops::DerefMut,
+    ops::{Deref, DerefMut},
     pin::Pin,
     sync::{Arc, Mutex},
     time::Duration,
@@ -13,25 +13,43 @@ use bevy::{
     ecs::{
         archetype::Archetypes,
         component::{ComponentHooks, ComponentId, Components, StorageType},
-        entity::{self, Entities},
+        entity::Entities,
         system::{BoxedSystem, SystemId, SystemState},
     },
+    input::mouse::MouseWheel,
     prelude::*,
     reflect::{
         Access, DynamicEnum, DynamicStruct, DynamicTuple, DynamicVariant, Enum, OffsetAccess,
         ParsedPath, ReflectKind, ReflectMut, ReflectRef, TypeInfo, TypeRegistry, VariantInfo,
     },
 };
-use haalka::prelude::*;
+use bevy_cosmic_edit::{
+    cosmic_text::{Action, Edit, Family, FamilyOwned, Motion, Selection},
+    CosmicBackgroundColor, CosmicEditor, CosmicFontSystem, CosmicTextAlign, CosmicWrap,
+    CursorColor, FontWeight, MaxLines, ScrollDisabled, SelectionColor,
+};
+use bevy_mod_picking::{
+    events::{Click, Drag, DragEnd, DragStart, Pointer},
+    prelude::PointerButton,
+};
+use haalka::{
+    align::AlignabilityFacade,
+    prelude::*,
+    raw::{utils::flush_deferred_updaters, HaalkaObserver, HaalkaOneShotSystem},
+    text_input::{FocusedTextInput, TextInputFocusOnDownDisabled},
+    viewport_mutable::{MutableViewport, OnViewportLocationChange},
+};
 use nucleo_matcher::{
     pattern::{CaseMatching, Normalization, Pattern},
     Config, Matcher,
 };
 use num::Bounded;
+use disqualified::ShortName;
 
 use super::{defaults::*, globals::*, reflect::*, style::*, utils::*, widgets::*};
 use crate::{impl_syncers, signal_or};
 
+// TODO: scrolling parent context, see vscode
 // TODO: searching
 // TODO: should error highlight + affect ordering when enum variant does not have default impl
 // TODO: on hover tooltips, all errors should be hoverable with tooltips
@@ -48,7 +66,6 @@ use crate::{impl_syncers, signal_or};
 
 // TODO: string field text input centers cursor to center as text grows
 // TODO: string field text input selection only flakily highlights entire text
-// TODO: scrolling parent context, see vscode (seems hard to implement idk)
 // TODO: scroll snapping when scroll to exceeds the element height
 // TODO: when input is focused, hovering it's field path has flakey cursor
 // TODO: live editing parse failures don't surface until input is unfocused https://github.com/Dimchikkk/bevy_cosmic_edit/issues/145
@@ -96,6 +113,7 @@ pub struct EntityInspector {
     entities_transformers: Vec<Box<dyn FnMut(EntitySignalVec) -> EntitySignalVec>>,
     components_transformers: Vec<Box<dyn FnMut(ComponentsSignalVec) -> ComponentsSignalVec + Send>>,
     search: Option<Search>,
+    // TODO: style stuff should be more packaged ? and maybe not here ?
     height: Mutable<f32>,
     width: Mutable<f32>,
     font_size: Mutable<f32>,
@@ -112,6 +130,9 @@ pub struct EntityInspector {
     scroll_pixels: Mutable<f32>,
     unnest_children: bool,
 }
+
+#[derive(Component)]
+struct EntityInspectorMarker;
 
 impl ElementWrapper for EntityInspector {
     type EL = Stack<NodeBundle>;
@@ -171,21 +192,20 @@ impl ElementWrapper for EntityInspector {
             .update_raw_el(move |raw_el| {
                 raw_el
                     .hold_tasks(tasks)
+                    .insert(EntityInspectorMarker)
+                    .insert(OnViewportLocationChange)
                     .component_signal::<SyncEntities, _>(unnest_children.signal().map_true(default))
                     .component_signal::<SyncOrphanEntities, _>(
                         unnest_children.signal().map_false(default),
                     )
             })
-            .apply(padding_style(BoxEdge::ALL, padding.signal()))
-            .apply(column_style(row_gap.signal()))
-            .scrollable_on_hover(ScrollabilitySettings {
-                flex_direction: FlexDirection::Column,
-                overflow: Overflow::clip(),
-                scroll_handler: BasicScrollHandler::new()
-                    .direction(ScrollDirection::Vertical)
+            .mutable_viewport(Overflow::clip(), LimitToBody::Both)
+            .on_scroll_with_system_on_hover(
+                BasicScrollHandler::new()
+                    .direction(ScrollDirection::Both)
                     .pixels_signal(self.scroll_pixels.signal().dedupe())
-                    .into(),
-            })
+                    .into_system(),
+            )
             .items_signal_vec({
                 let mut signal_vec = entities.entries_cloned().boxed();
                 signal_vec = signal_vec
@@ -228,10 +248,7 @@ impl ElementWrapper for EntityInspector {
                         .unhighlighted_color_signal(unhighlighted_color.signal())
                     }))
             })
-            // force the deferred updaters to run early
-            .into_raw()
-            .into_node_builder()
-            .apply(RawHaalkaEl::from)
+            .apply(flush_deferred_updaters)
             .apply(El::<NodeBundle>::from)
             .apply(resize_border(
                 border_width.signal(),
@@ -429,6 +446,12 @@ impl EntityElement {
 #[derive(Component, Default)]
 struct SyncComponents;
 
+#[derive(Component, Default)]
+struct Expanded;
+
+#[derive(Component)]
+struct LastExpandedHeader(Mutable<bool>);
+
 impl ElementWrapper for EntityElement {
     type EL = Column<NodeBundle>;
     fn element_mut(&mut self) -> &mut Self::EL {
@@ -465,6 +488,7 @@ impl ElementWrapper for EntityElement {
         .update_raw_el(clone!((components, expanded) move |raw_el| {
             raw_el
             .insert(EntityRoot { entity, components: HashSet::from_iter(components.lock_ref().iter().map(|(&id, _)| id))})
+            .component_signal::<Expanded, _>(expanded.signal().map_true(default))
             .on_spawn_with_system(clone!((expanded) move |In(ui_entity): In<Entity>, parents: Query<&Parent>, inspection_targets: Query<&InspectionTargets>, mut commands: Commands| {
                 for parent in parents.iter_ancestors(ui_entity) {
                     if let Ok(InspectionTargets(inspection_targets)) = inspection_targets.get(parent) {
@@ -508,25 +532,58 @@ impl ElementWrapper for EntityElement {
                 }
             }))
             // TODO: only sync when in view
-            .component_signal::<SyncComponents, _>(
-                expanded.signal().map_true(default),
-            )
+            .component_signal::<SyncComponents, _>(expanded.signal().map_true(default))
         }))
-        .apply(column_style(row_gap.signal()))
+        .width(Val::Percent(100.))
         .item(show_name.then(|| {
-            HighlightableText::new()
-            .with_text(clone!((font_size) move |text| {
-                text
-                .text_signal(name.signal_cloned().map_option(identity, || "Entity".to_string()).map(move |prefix| format!("{prefix} ({entity})")))
-                .font_size_signal(font_size.signal())
+            let last_expanded_header = Mutable::new(false);
+            let hovered = Mutable::new(false);
+            El::<NodeBundle>::new()
+            .width(Val::Percent(100.))
+            .cursor(CursorIcon::Pointer)
+            .apply(padding_style(BoxEdge::VERTICAL, row_gap.signal().map(|row_gap| row_gap / 2.)))
+            .apply(padding_style(BoxEdge::HORIZONTAL, padding.signal()))
+            .apply(background_style(primary_background_color.signal()))
+            .hovered_sync(hovered.clone())
+            .child(
+                HighlightableText::new()
+                .align(Align::new().center_y())
+                .highlighted_signal(hovered.signal())
+                .with_text(clone!((font_size) move |text| {
+                    text
+                    .text_signal(name.signal_cloned().map_option(identity, || "Entity".to_string()).map(move |prefix| format!("{prefix} ({entity})")))
+                    .font_size_signal(font_size.signal())
+                }))
+                .highlighted_color_signal(highlighted_color.signal())
+                .unhighlighted_color_signal(unhighlighted_color.signal())
+            )
+            .on_click_with_system(clone!((expanded) move |In((entity, _)), mut styles: Query<&mut Style>| {
+                flip(&expanded);
+                if let Ok(mut style) = styles.get_mut(entity) {
+                    style.top = Val::Px(0.);
+                }
             }))
-            .highlighted_color_signal(highlighted_color.signal())
-            .unhighlighted_color_signal(unhighlighted_color.signal())
-            .on_click(clone!((expanded) move || flip(&expanded)))
+            // TODO: shouldn't use El here but Stack is being weird with heights
+            .child_signal(
+                last_expanded_header
+                .signal()
+                .map_true(|| {
+                    El::<NodeBundle>::new()
+                    .height(Val::Px(4.))
+                    .width(Val::Percent(120.))
+                    .with_style(|mut style| {
+                        style.position_type = PositionType::Absolute;
+                        style.top = Val::Px(18. + 5.);  // TODOTODO: these should not be hardcoded
+                        style.left = Val::Px(-20.);
+                    })
+                    .apply(background_style(always(Color::BLACK.with_alpha(0.5))))
+                })
+            )
+            .update_raw_el(|raw_el| raw_el.insert(LastExpandedHeader(last_expanded_header)))
         }))
         .item_signal(if show_name { expanded.signal().boxed() } else { always(true).boxed() }.map_true(clone!((row_gap, column_gap, secondary_background_color, border_width, border_color, padding, highlighted_color, unhighlighted_color) move || {
             Column::<NodeBundle>::new()
-                .apply(column_style(row_gap.signal()))
+                .apply(move_style(Move::Right, padding.signal()))
                 .apply(horizontal_padding_style(padding.signal()))
                 .apply(left_bordered_style(border_width.signal(), border_color.signal()))
                 .items_signal_vec({
@@ -680,7 +737,7 @@ impl FieldElement {
         let expanded = Mutable::new(false);
         let (name, access_option) = match field_type.clone() {
             FieldType::Component(type_path) => {
-                (pretty_type_name::pretty_type_name_str(&type_path), None)
+                (ShortName(&type_path).to_string(), None)
             }
             FieldType::Access(access) => (access.to_string(), Some(access.clone())),
         };
@@ -688,7 +745,6 @@ impl FieldElement {
         let node_type = Mutable::new(None);
         let enum_data_option = Mutable::new(None);
         let el = Column::<NodeBundle>::new()
-            .apply(column_style(row_gap.signal()))
             .update_raw_el(|raw_el| {
                 raw_el
                 .on_spawn_with_system(clone!((expanded, field_type) move |In(ui_entity): In<Entity>, parents: Query<&Parent>, progresses: Query<&InspectionTargetProgress>, mut commands: Commands| {
@@ -848,6 +904,7 @@ impl FieldElement {
                 let hovered = Mutable::new(false);
                 Row::<NodeBundle>::new()
                 .with_style(|mut style| style.width = Val::Percent(100.))
+                .apply(padding_style(BoxEdge::VERTICAL, row_gap.signal().map(|row_gap| row_gap / 2.)))
                 .apply(row_style(column_gap.signal()))
                 .on_click(clone!((expanded, viewable) move || {
                     if viewable.get() {
@@ -882,7 +939,7 @@ impl FieldElement {
                     } else {
                         type_path.signal_cloned().map_some(clone!((type_path_color) move |type_path| {
                             DynamicText::new()
-                            .text_signal(hovered.signal().map_bool(clone!((type_path) move || type_path.clone()), move || pretty_type_name::pretty_type_name_str(&type_path)))
+                            .text_signal(hovered.signal().map_bool(clone!((type_path) move || type_path.clone()), move || ShortName(&type_path).to_string()))
                             .color_signal(type_path_color.signal())
                         }))
                         .boxed()
@@ -902,11 +959,11 @@ impl FieldElement {
                     enum_data_option
                 ) move || {
                     Column::<NodeBundle>::new()
-                    .apply(nested_fields_style(row_gap.signal(), padding.signal(), border_width.signal(), border_color.signal()))
-                    .apply(column_style(row_gap.signal()))
+                    .apply(padding_style(BoxEdge::HORIZONTAL, padding.signal()))
+                    .apply(left_bordered_style(border_width.signal(), border_color.signal()))
                     .item_signal(
                         enum_data_option.signal_cloned()
-                        .map_some(clone!((access_option, node_type) move |EnumData { variants }| {
+                        .map_some(clone!((access_option, node_type, row_gap) move |EnumData { variants }| {
                             let options = variants.into_iter().map(Into::into).collect::<Vec<_>>().into();
                             let selected = Mutable::new(None);
                             let show_dropdown = Mutable::new(false);
@@ -914,6 +971,7 @@ impl FieldElement {
                             Dropdown::new(options)
                             .on_click_outside(clone!((show_dropdown) move || show_dropdown.set_neq(false)))
                             .with_show_dropdown(show_dropdown.clone())
+                            .apply(padding_style(BoxEdge::VERTICAL, row_gap.signal().map(|row_gap| row_gap / 2.)))
                             .update_raw_el(clone!((access_option, selected, dropdown_entity, node_type) move |raw_el| {
                                 raw_el
                                 .insert(Accessory { entity, component, access_option })
@@ -978,6 +1036,7 @@ impl FieldElement {
                                     viewable.set_neq(true);
                                 }
                                 el_option
+                                .map(|el| el.apply(padding_style(BoxEdge::VERTICAL, row_gap.signal().map(|row_gap| row_gap / 2.))))
                             },
                             NodeType::Multi { items, size_dynamic } => {
                                 Column::<NodeBundle>::new()
@@ -1017,7 +1076,6 @@ impl FieldElement {
                                     }
                                     raw_el
                                 }))
-                                .apply(column_style(row_gap.signal()))
                                 .items_signal_vec(
                                     items.signal_vec_cloned()
                                     .map(clone!((row_gap, border_width, border_color, padding, highlighted_color, unhighlighted_color, type_path_color) move |AccessFieldData { access, viewable }| {
@@ -1036,8 +1094,10 @@ impl FieldElement {
                             },
                         }))
                         .map(Option::flatten)
-                        .map(clone!((access_option) move |mut el_option| {
-                            el_option = el_option.map(clone!((access_option) move |el| el.update_raw_el(|raw_el| raw_el.insert(Accessory { entity, component, access_option }))));
+                        .map(clone!((access_option, row_gap) move |mut el_option| {
+                            el_option = el_option
+                            .map(|el| el.apply(padding_style(BoxEdge::VERTICAL, row_gap.signal().map(|row_gap| row_gap / 2.))))
+                            .map(clone!((access_option) move |el| el.update_raw_el(|raw_el| raw_el.insert(Accessory { entity, component, access_option }))));
                             el_option
                         }))
                     )
@@ -1400,23 +1460,28 @@ impl<T: Send + Sync + PartialEq + Reflect + Clone, F: Fn(T) -> String + Send + S
                 if focused {
                     let id = entity.id();
                     let world = entity.into_world_mut();
-                    let mut system_state = SystemState::<(Query<&mut CosmicEditor>, ResMut<CosmicFontSystem>)>::new(world);
+                    let mut system_state = SystemState::<(
+                        Query<&mut CosmicEditor>,
+                        ResMut<CosmicFontSystem>,
+                    )>::new(world);
                     let (mut cosmic_editors, mut font_system) = system_state.get_mut(world);
                     if let Ok(mut cosmic_editor) = cosmic_editors.get_mut(id) {
                         cosmic_editor.action(&mut font_system.0, Action::Motion(Motion::BufferEnd));
                         let current_cursor = cosmic_editor.cursor();
-                        cosmic_editor.set_selection(Selection::Normal(Cursor {
-                            line: 0,
-                            index: 0,
-                            affinity: current_cursor.affinity,
-                        }));
+                        cosmic_editor.set_selection(Selection::Normal(
+                            bevy_cosmic_edit::cosmic_text::Cursor {
+                                line: 0,
+                                index: 0,
+                                affinity: current_cursor.affinity,
+                            },
+                        ));
                     }
                 }
             })
             .update_raw_el(clone!((value) move |raw_el| {
                 raw_el
                 .on_remove(|world, _| {
-                    world.commands().insert_resource(CosmicEditCursorPluginDisabled);
+                    world.commands().insert_resource(bevy_cosmic_edit::CursorPluginDisabled);
                 })
                 .with_entity(clone!((value) move |mut entity| {
                     let handler = entity.world_scope(|world| {
@@ -1433,25 +1498,42 @@ impl<T: Send + Sync + PartialEq + Reflect + Clone, F: Fn(T) -> String + Send + S
             .text_signal(text.signal_cloned())
             .focus_signal(focused.signal())
             .focused_sync(focused.clone())
-            .on_click_outside_with_system(|In((entity, _)), mut focused: ResMut<CosmicFocusedWidget>| {
-                if focused.0 == Some(entity) {
-                    focused.0 = None;
-                }
-            })
+            .on_click_outside_with_system(
+                |In((entity, _)),
+                 focused_option: Option<Res<FocusedTextInput>>,
+                 mut commands: Commands| {
+                    if focused_option.as_deref().map(Deref::deref).copied() == Some(entity) {
+                        commands.remove_resource::<FocusedTextInput>();
+                    }
+                },
+            )
             .apply(text_input_font_size_style(font_size.signal()))
             .line_height_signal(font_size.signal())
             .attrs(
                 TextAttrs::new()
-                .family(FamilyOwned::new(Family::Name("Fira Mono")))
-                .weight(FontWeight::MEDIUM)
-                .color_signal(signal_short_circuit(self.text_color_option, highlighting.signal(), highlighted_color.signal(), unhighlighted_color.signal()).map(Some))
+                    .family(FamilyOwned::new(Family::Name("Fira Mono")))
+                    .weight(FontWeight::MEDIUM)
+                    .color_signal(
+                        signal_short_circuit(
+                            self.text_color_option,
+                            highlighting.signal(),
+                            highlighted_color.signal(),
+                            unhighlighted_color.signal(),
+                        )
+                        .map(Some),
+                    ),
             )
             .cursor_color_signal(unhighlighted_color.signal().map(CursorColor))
             .fill_color_signal(background_color.signal().map(CosmicBackgroundColor))
             .selection_color_signal(border_color.signal().map(SelectionColor))
             .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
             .apply(border_width_style(BoxEdge::ALL, border_width.signal()))
-            .apply(border_color_style(signal_short_circuit(self.border_color_option, highlighting.signal(), highlighted_color.signal(), border_color.signal())))
+            .apply(border_color_style(signal_short_circuit(
+                self.border_color_option,
+                highlighting.signal(),
+                highlighted_color.signal(),
+                border_color.signal(),
+            )))
             .apply(|mut el| {
                 for mut f in self.with_text_signal {
                     el = f(el, text.signal_cloned().boxed());
@@ -1614,13 +1696,11 @@ fn numeric_field<T: NumericFieldable>() -> impl Element {
             )
         }))
         .cursor_signal(focused.signal().map_bool(|| CursorIcon::Text, || CursorIcon::EwResize))
-        .on_click_with_system(move |In((entity, _)), click: Listener<Pointer<Click>>, cosmic_sources: Query<&CosmicSource>, mut commands: Commands| {
+        .on_click_with_system(move |In((entity, _)), click: Listener<Pointer<Click>>, mut commands: Commands| {
             if matches!(click.button, PointerButton::Primary) {
                 if !dragging.get() {
                     focused.set_neq(true);
-                    if let Ok(&CosmicSource(entity)) = cosmic_sources.get(entity) {
-                        commands.insert_resource(CosmicFocusedWidget(Some(entity)))
-                    }
+                    commands.insert_resource(FocusedTextInput(entity));
                 }
             }
         })
@@ -1684,11 +1764,9 @@ fn string_field() -> impl Element {
         .text_position_signal(padding.signal().map(|padding| CosmicTextAlign::Left {
             padding: padding.round() as i32,
         }))
-        .on_focused_change_with_system(|In((entity, focused)), cosmic_sources: Query<&CosmicSource>, mut commands: Commands| {
+        .on_focused_change_with_system(|In((entity, focused)), mut commands: Commands| {
             if focused {
-                if let Ok(&CosmicSource(entity)) = cosmic_sources.get(entity) {
-                    commands.insert_resource(CosmicFocusedWidget(Some(entity)));
-                }
+                commands.insert_resource(FocusedTextInput(entity));
             }
         })
         .on_change_with_system(
@@ -1959,12 +2037,9 @@ fn wait_for_nodely(
     }
 }
 
-fn deselect_editor_on_keys(
-    input: Res<ButtonInput<KeyCode>>,
-    mut focus: ResMut<CosmicFocusedWidget>,
-) {
+fn unfocus_text_input_on_keys(input: Res<ButtonInput<KeyCode>>, mut commands: Commands) {
     if input.any_just_pressed([KeyCode::Escape, KeyCode::Enter]) {
-        focus.0 = None;
+        commands.remove_resource::<FocusedTextInput>();
     }
 }
 
@@ -1983,6 +2058,101 @@ struct SyncOrphanEntities;
 #[derive(Component, Default)]
 struct SyncEntities;
 
+// could not use `.on_viewport_location_change` (ideal) or `.on_scroll` (less ideal) because this requires frame perfection;
+// the former has 4(?) observer/one shot system indirections and the latter has 2(?)
+// actually turns out even this isn't scroll perfect if one scrolls fast enough, and using
+// scrollbars complicates things further ...
+fn expanded_parent_pinner(
+    inspectors: Query<(Entity, &MutableViewport), (With<EntityInspectorMarker>, Without<ScrollDisabled>)>,
+    rect: Query<(&Node, &GlobalTransform)>,
+    children: Query<&Children>,
+    parents: Query<&Parent>,
+    expanded: Query<&Expanded>,
+    mut styles: Query<&mut Style>,
+    mut mouse_wheels: EventReader<MouseWheel>,
+    last_expanded_headers: Query<&LastExpandedHeader>,
+    resize_parents: Query<(Entity, &ResizeParent)>,
+    mut resize_parents_cache: Local<HashMap<Entity, Entity>>,
+    mut commands: Commands,
+) {
+    for &MouseWheel { y, .. } in mouse_wheels.read() {
+        for (entity, mutable_viewport) in inspectors.iter() {
+            // TODO: use relations for this
+            if !resize_parents_cache.contains_key(&entity) {
+                for parent in parents.iter_ancestors(entity) {
+                    if resize_parents.contains(parent) {
+                        resize_parents_cache.insert(entity, parent);
+                        break;
+                    }
+                }
+            }
+            if let Some(&resize_parent) = resize_parents_cache.get(&entity) {
+                let top_offset = if let Ok(style) = styles.get(resize_parent) {
+                    if let Val::Px(top) = style.top {
+                        top
+                    } else {
+                        0.
+                    }
+                } else {
+                    0.
+                };
+                let mut pinned = 0;
+                for child in children.iter_descendants(entity) {
+                    if expanded.contains(child) {
+                        if let Ok((node, global_transform)) = rect.get(child) {
+                            let rect1 = node.logical_rect(global_transform);
+                            // TODOTODO: need to get this 20. from the node's scroll settings, which means i need to make basic scroll handler a component
+                            let rel_y = rect1.min.y + if y < 0. { -20. } else { 20. } - top_offset;
+                            if let Some(&child) = children
+                                .get(child)
+                                .ok()
+                                .and_then(|children| children.first())
+                            {
+                                if let Ok((node, global_transform)) = rect.get(child) {
+                                    let rect1 = node.logical_rect(global_transform);
+                                    // println!("{:?}", mutable_viewport.scene());
+                                    // println!("{:?}", mutable_viewport.viewport());
+                                    println!("rect 2: {:?}", rect1);
+                                    if let Ok(mut style) = styles.get_mut(child) {
+                                        if rel_y < 0. {
+                                            style.top = Val::Px(-rel_y);
+                                            // TODOTODO: get this 5. from row gap somehow
+                                            if matches!(style.height, Val::Auto) || {
+                                                if let Val::Px(height) = style.height {
+                                                    height < 18. + 5.
+                                                } else {
+                                                    false
+                                                }
+                                            } {
+                                                style.height = Val::Px(18. + 5.);
+                                            }
+                                            if let Some(mut entity) = commands.get_entity(child) {
+                                                entity.try_insert(ZIndex::Local(i32::MAX));
+                                            }
+                                            if let Ok(LastExpandedHeader(last_expanded_header)) = last_expanded_headers.get(child) {
+                                                last_expanded_header.set_neq(true);
+                                            }
+                                        } else {
+                                            style.top = Val::Px(0.);
+                                            // style.height = Val::Auto;
+                                            if let Some(mut entity) = commands.get_entity(child) {
+                                                entity.remove::<ZIndex>();
+                                            }
+                                            if let Ok(LastExpandedHeader(last_expanded_header)) = last_expanded_headers.get(child) {
+                                                last_expanded_header.set_neq(false);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(
         Update,
@@ -1996,17 +2166,15 @@ pub(super) fn plugin(app: &mut App) {
             sync_ui.run_if(any_with_component::<FieldListener>),
             wait_for_nodely.run_if(any_with_component::<AfterNodely>),
             (
-                deselect_editor_on_keys,
-                left_align_editors.run_if(
-                    resource_changed::<CosmicFocusedWidget>
-                        .and_then(|focused: Res<CosmicFocusedWidget>| focused.0.is_none()),
-                ),
+                unfocus_text_input_on_keys,
+                left_align_editors.run_if(resource_removed::<FocusedTextInput>()),
             )
                 .chain(),
+            expanded_parent_pinner.run_if(any_with_component::<EntityInspectorMarker>),
         ),
     )
     .init_resource::<FieldPathCache>()
-    .insert_resource(CosmicEditCursorPluginDisabled)
+    .insert_resource(bevy_cosmic_edit::CursorPluginDisabled)
     .observe(
         |event: Trigger<RemoveTarget>,
          parents: Query<&Parent>,
@@ -2033,12 +2201,12 @@ pub(super) fn plugin(app: &mut App) {
     .observe(
         |event: Trigger<ScrollTo>,
          parents: Query<&Parent>,
-         scroll_handler: Query<&ScrollHandler>,
+         mutable_viewports: Query<&MutableViewport>,
          nodes: Query<(&Node, &GlobalTransform)>,
          mut styles: Query<&mut Style>| {
             let &ScrollTo(entity) = event.event();
             for parent in parents.iter_ancestors(entity) {
-                if scroll_handler.contains(parent) {
+                if mutable_viewports.contains(parent) {
                     if let Ok((node, global_transform)) = nodes.get(entity) {
                         if let Ok(mut style) = styles.get_mut(parent) {
                             style.top = Val::Px(-node.logical_rect(global_transform).min.y);

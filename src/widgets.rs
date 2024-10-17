@@ -1,13 +1,8 @@
 use super::{defaults::*, globals::*, style::*, utils::*};
 use crate::impl_syncers;
-use bevy::{ecs::system::SystemId, prelude::*, tasks::futures_lite::future::Zip};
+use bevy::{ecs::system::SystemId, prelude::*};
 use haalka::prelude::*;
-use std::{
-    fmt::Display,
-    i32,
-    ops::Neg,
-    sync::{Arc, Mutex},
-};
+use std::{fmt::Display, i32, ops::Neg};
 
 #[derive(Default)]
 pub struct DynamicText {
@@ -95,7 +90,6 @@ impl HighlightableText {
                     clone!((unhighlighted_color) move || unhighlighted_color.signal()),
                 ),
             )
-            .cursor(CursorIcon::Pointer)
             .hovered_sync(hovered);
         Self {
             text: dynamic_text,

@@ -2,6 +2,7 @@ use bevy::{
     color::palettes::css::{LIME, MAROON},
     prelude::*,
 };
+use bevy_mod_picking::prelude::Pickable;
 use globals::{GLOBAL_BORDER_COLOR, GLOBAL_HIGHLIGHTED_COLOR, GLOBAL_UNHIGHLIGHTED_COLOR};
 use haalka::prelude::*;
 use inspector::ORPHAN_ENTITIES;
@@ -119,13 +120,13 @@ impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {
             });
             app.add_systems(Startup, move |world: &mut World| {
                 El::<NodeBundle>::new()
+                    .ui_root()
                     .update_raw_el(|raw_el| {
                         raw_el.insert(Pickable {
                             should_block_lower: false,
                             ..default()
                         })
                     })
-                    .ui_root()
                     .width(Val::Percent(100.))
                     .height(Val::Percent(100.))
                     .cursor(CursorIcon::Default)
@@ -136,7 +137,7 @@ impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {
                                 if let Some(WorldInspectorTransformers { transformers }) =
                                     world.remove_resource::<WorldInspectorTransformers>()
                                 {
-                                    for mut f in transformers {
+                                    for f in transformers {
                                         entity_inspector = f(entity_inspector)
                                     }
                                 }

@@ -11,7 +11,9 @@ use bevy::{
     color::palettes::css::{LIME, MAROON},
     prelude::*,
     ui::shader_flags::BORDER,
+    dev_tools::{ui_debug_overlay::DebugUiPlugin}
 };
+use bevy_mod_picking::prelude::Pickable;
 use haalka::prelude::*;
 use strum::{Display, EnumIter, IntoEnumIterator};
 
@@ -25,6 +27,7 @@ fn main() {
                 }),
                 ..default()
             }),
+            bevy::dev_tools::ui_debug_overlay::DebugUiPlugin,
             HaalkaPlugin,
             // style::plugin,
             AaloPlugin::new().world().with_inspector(|inspector| {
@@ -34,7 +37,7 @@ fn main() {
                     //     "bevy_window::window::Window",
                     //     ".internal.physical_cursor_position.0",
                     // ))
-                    .jump_to(("BoolComponentHolder", "test::BoolComponentHolder", ".enum_"))
+                    // .jump_to(("BoolComponentHolder", "test::BoolComponentHolder", ".enum_"))
                 // .jump_to((
                 //     "0v1",
                 //     "bevy_window::window::Window",
@@ -75,11 +78,12 @@ fn main() {
         .register_type::<TestEnum>()
         .register_type::<FloatWrapper>()
         .add_systems(Startup, (camera, ui_root, setup))
+        .add_systems(Update, toggle_overlay)
         .run();
 }
 
 fn camera(mut commands: Commands) {
-    commands.spawn(Camera2dBundle::default());
+    commands.spawn((Camera2dBundle::default(), IsDefaultUiCamera));
 }
 
 #[derive(Clone, PartialEq, Component, Reflect, EnumIter, Display)]
@@ -217,4 +221,13 @@ fn ui_root(world: &mut World) {
         //         .basic_option_handler(),
         // )
         .spawn(world);
+}
+
+fn toggle_overlay(
+    input: Res<ButtonInput<KeyCode>>,
+    mut options: ResMut<bevy::dev_tools::ui_debug_overlay::UiDebugOptions>,
+) {
+    if input.just_pressed(KeyCode::F1) {
+        options.toggle();
+    }
 }

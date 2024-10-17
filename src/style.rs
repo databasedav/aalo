@@ -1,24 +1,11 @@
 use std::{ops::Neg, sync::Arc};
 
 use bevy::{color::palettes::css::MAROON, prelude::*, ui::widget};
+use bevy_mod_picking::events::{Down, Drag, DragEnd, DragStart, Pointer};
 use haalka::prelude::*;
 use strum::{Display, EnumIter, IntoEnumIterator};
 
 use crate::{globals::GLOBAL_PRIMARY_BACKGROUND_COLOR, signal_or};
-
-pub fn nested_fields_style<E: Element>(
-    row_gap: impl Signal<Item = f32> + Send + Sync + 'static,
-    padding: impl Signal<Item = f32> + Send + 'static,
-    border_width: impl Signal<Item = f32> + Send + 'static,
-    border_color: impl Signal<Item = Color> + Send + 'static,
-) -> impl FnOnce(E) -> E {
-    |el| {
-        let row_gap = row_gap.dedupe().broadcast();
-        el.apply(column_style(row_gap.signal()))
-            .apply(horizontal_padding_style(padding))
-            .apply(left_bordered_style(border_width, border_color))
-    }
-}
 
 pub fn text_style<E: Element>(
     font_size: impl Signal<Item = f32> + Send + 'static,
@@ -67,7 +54,7 @@ pub fn row_style<E: Element>(
     }
 }
 
-pub fn padding_style<E: Element>(
+pub fn padding_style<E: RawElWrapper>(
     edges: impl IntoIterator<Item = BoxEdge>,
     padding: impl Signal<Item = f32> + Send + 'static,
 ) -> impl FnOnce(E) -> E {
@@ -374,9 +361,10 @@ pub fn margin_style<E: Element>(
 
 const RESIZE_BORDER_SLACK_PERCENT: f32 = 100.;
 
-#[derive(Component)]
-struct ResizeParent;
+#[derive(Component, Debug)]
+pub(crate) struct ResizeParent;
 
+// this is cursed, do not use this, wait for this https://github.com/bevyengine/bevy/issues/14773
 pub fn resize_border<E: Element + Sizeable>(
     border_width: impl Signal<Item = f32> + Send + Sync + 'static,
     radius: impl Signal<Item = f32> + Send + Sync + 'static,
@@ -445,7 +433,7 @@ pub fn resize_border<E: Element + Sizeable>(
                 el
             })
             .layer({
-                el = el
+                let mut el = El::<NodeBundle>::new()
                     .align(Align::center())
                     .height(Val::Percent(100.))
                     .width(Val::Percent(100.))
@@ -481,6 +469,14 @@ pub fn resize_border<E: Element + Sizeable>(
                     ));
                 }
                 el
+            })
+            // TODO: 0.15 fixes border clipping, move the el back to the above layer
+            .layer({
+                el
+                    .align(Align::center())
+                    // TODO: just manually pin this to the actual container
+                    .height(Val::Percent(99.))
+                    .width(Val::Percent(100.))
             });
         let border_width_slack = border_width
             .signal()
@@ -598,7 +594,6 @@ pub fn resize_border<E: Element + Sizeable>(
                         BoxEdge::Right => Align::new().right(),
                     })
                     .background_color(BackgroundColor(Color::NONE));
-                // .background_color(BackgroundColor(Color::BLACK.with_alpha(0.3)));
                 match edge {
                     BoxEdge::Left | BoxEdge::Right => {
                         el = el
@@ -725,24 +720,24 @@ pub fn resize_border<E: Element + Sizeable>(
                         }
                     })
                 }))
-                .apply(square_style(resize_border_width.signal()))
+                .apply(square_style(resize_border_width.signal().map(|width| width * 2.)))
                 .on_signal_with_style(border_width_slack.signal(), move |mut style, slack| {
                     match corner {
                         BoxCorner::TopLeft => {
-                            style.top = -Val::Px(slack * 0.5);
-                            style.left = -Val::Px(slack * 0.5);
+                            style.top = -Val::Px(slack);
+                            style.left = -Val::Px(slack);
                         }
                         BoxCorner::TopRight => {
-                            style.top = -Val::Px(slack * 0.5);
-                            style.right = -Val::Px(slack * 0.5);
+                            style.top = -Val::Px(slack);
+                            style.right = -Val::Px(slack);
                         }
                         BoxCorner::BottomLeft => {
-                            style.bottom = -Val::Px(slack * 0.5);
-                            style.left = -Val::Px(slack * 0.5);
+                            style.bottom = -Val::Px(slack);
+                            style.left = -Val::Px(slack);
                         }
                         BoxCorner::BottomRight => {
-                            style.bottom = -Val::Px(slack * 0.5);
-                            style.right = -Val::Px(slack * 0.5);
+                            style.bottom = -Val::Px(slack);
+                            style.right = -Val::Px(slack);
                         }
                     }
                 })
@@ -762,6 +757,33 @@ pub fn resize_border<E: Element + Sizeable>(
             );
         }
         el
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum Move {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+pub fn move_style<E: Element>(
+    move_: Move,
+    magnitude: impl Signal<Item = f32> + Send + 'static,
+) -> impl FnOnce(E) -> E {
+    move |el| {
+        el.update_raw_el(move |raw_el| {
+            raw_el.on_signal_with_component::<_, Style>(
+                magnitude.dedupe().map(Val::Px),
+                move |mut style, magnitude| match move_ {
+                    Move::Up => style.top = magnitude.neg(),
+                    Move::Down => style.top = magnitude,
+                    Move::Left => style.left = magnitude.neg(),
+                    Move::Right => style.left = magnitude,
+                },
+            )
+        })
     }
 }
 

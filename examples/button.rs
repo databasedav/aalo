@@ -2,6 +2,7 @@
 
 use bevy::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use bevy_mod_picking::prelude::Pickable;
 use haalka::prelude::*;
 use strum::{Display, EnumIter};
 
