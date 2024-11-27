@@ -5,7 +5,7 @@ use bevy_mod_picking::events::{Down, Drag, DragEnd, DragStart, Pointer};
 use haalka::prelude::*;
 use strum::{Display, EnumIter, IntoEnumIterator};
 
-use crate::{globals::GLOBAL_PRIMARY_BACKGROUND_COLOR, signal_or};
+use crate::{globals::GLOBAL_PRIMARY_BACKGROUND_COLOR, signal_or, inspector::{ResizeParentListener, ParentResize}};
 
 pub fn text_style<E: Element>(
     font_size: impl Signal<Item = f32> + Send + 'static,
@@ -73,51 +73,6 @@ pub fn padding_style<E: RawElWrapper>(
                             BoxEdge::Right => padding.right = p,
                         }
                     }
-                },
-            )
-        })
-    }
-}
-
-pub fn all_padding_style<E: Element>(
-    padding: impl Signal<Item = f32> + Send + 'static,
-) -> impl FnOnce(E) -> E {
-    move |el| {
-        el.update_raw_el(|raw_el| {
-            raw_el.on_signal_with_component::<_, Style>(
-                padding.dedupe().map(Val::Px).map(UiRect::all),
-                |mut style, padding| style.padding = padding,
-            )
-        })
-    }
-}
-
-pub fn vertical_padding_style<E: Element>(
-    padding: impl Signal<Item = f32> + Send + 'static,
-) -> impl FnOnce(E) -> E {
-    move |el| {
-        el.update_raw_el(|raw_el| {
-            raw_el.on_signal_with_component::<_, Style>(
-                padding.dedupe().map(Val::Px),
-                |mut style, padding| {
-                    style.padding.top = padding;
-                    style.padding.bottom = padding;
-                },
-            )
-        })
-    }
-}
-
-pub fn horizontal_padding_style<E: Element>(
-    padding: impl Signal<Item = f32> + Send + 'static,
-) -> impl FnOnce(E) -> E {
-    move |el| {
-        el.update_raw_el(|raw_el| {
-            raw_el.on_signal_with_component::<_, Style>(
-                padding.dedupe().map(Val::Px),
-                |mut style, padding| {
-                    style.padding.left = padding;
-                    style.padding.right = padding;
                 },
             )
         })
@@ -367,7 +322,7 @@ pub(crate) struct ResizeParent;
 // this is cursed, do not use this, wait for this https://github.com/bevyengine/bevy/issues/14773
 pub fn resize_border<E: Element + Sizeable>(
     border_width: impl Signal<Item = f32> + Send + Sync + 'static,
-    radius: impl Signal<Item = f32> + Send + Sync + 'static,
+    border_radius: impl Signal<Item = f32> + Send + Sync + 'static,
     unhighlighted_color: impl Signal<Item = Color> + Send + 'static,
     highlighted_color: impl Signal<Item = Color> + Send + 'static,
     wrapper_stack_option: Option<Stack<NodeBundle>>,
@@ -384,7 +339,7 @@ pub fn resize_border<E: Element + Sizeable>(
             .collect::<Vec<_>>()
             .apply(Arc::new);
         let border_width = border_width.dedupe().broadcast();
-        let radius = radius.dedupe().broadcast();
+        let radius = border_radius.dedupe().broadcast();
         let edge_highlighted = |edge| match edge {
             BoxEdge::Top => signal_or!(
                 edge_hovereds[0].signal(),
@@ -432,6 +387,18 @@ pub fn resize_border<E: Element + Sizeable>(
                 }
                 el
             })
+            // TODO: 0.15 fixes border clipping, move the el back to the above layer
+            .layer({
+                El::<NodeBundle>::new()
+                .apply(padding_style(BoxEdge::ALL, border_width.signal()))
+                .with_style(|mut style| style.overflow = Overflow::clip())
+                .child(
+                    el
+                    .apply(border_radius_style(BoxCorner::ALL, radius.signal()))
+                    .height(Val::Percent(100.))
+                    .width(Val::Percent(100.))
+                )
+            })
             .layer({
                 let mut el = El::<NodeBundle>::new()
                     .align(Align::center())
@@ -469,14 +436,6 @@ pub fn resize_border<E: Element + Sizeable>(
                     ));
                 }
                 el
-            })
-            // TODO: 0.15 fixes border clipping, move the el back to the above layer
-            .layer({
-                el
-                    .align(Align::center())
-                    // TODO: just manually pin this to the actual container
-                    .height(Val::Percent(99.))
-                    .width(Val::Percent(100.))
             });
         let border_width_slack = border_width
             .signal()

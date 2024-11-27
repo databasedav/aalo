@@ -15,13 +15,10 @@ use bevy::{
         component::{ComponentHooks, ComponentId, Components, StorageType},
         entity::Entities,
         system::{BoxedSystem, SystemId, SystemState},
-    },
-    input::mouse::MouseWheel,
-    prelude::*,
-    reflect::{
+    }, input::mouse::MouseWheel, log::tracing_subscriber::field, prelude::*, reflect::{
         Access, DynamicEnum, DynamicStruct, DynamicTuple, DynamicVariant, Enum, OffsetAccess,
         ParsedPath, ReflectKind, ReflectMut, ReflectRef, TypeInfo, TypeRegistry, VariantInfo,
-    },
+    }, ui::ui_layout_system
 };
 use bevy_cosmic_edit::{
     cosmic_text::{Action, Edit, Family, FamilyOwned, Motion, Selection},
@@ -37,7 +34,7 @@ use haalka::{
     prelude::*,
     raw::{utils::flush_deferred_updaters, HaalkaObserver, HaalkaOneShotSystem},
     text_input::{FocusedTextInput, TextInputFocusOnDownDisabled},
-    viewport_mutable::{MutableViewport, OnViewportLocationChange},
+    viewport_mutable::MutableViewport,
 };
 use nucleo_matcher::{
     pattern::{CaseMatching, Normalization, Pattern},
@@ -59,7 +56,7 @@ use crate::{impl_syncers, signal_or};
 // TODO: runtime targeting
 // TODO: drag handle
 // TODO: optional title
-// TODO: only sync components/execute field listeners when in view
+// TODO: only sync components/execute field listeners when in view, can just use ViewVisibility component for this ?
 // TODO: `Name` component syncing
 // TODO: implement frontend for at least all ui node types; how abt char, str, unit ? test
 // TODO: scrollbars
@@ -188,12 +185,13 @@ impl ElementWrapper for EntityInspector {
             }).to_future().apply(spawn);
             tasks.push(task);
         }
+        let viewport_height = Mutable::new(0.);
+        // let pinned_entities = MutableVec::new();
         column
             .update_raw_el(move |raw_el| {
                 raw_el
                     .hold_tasks(tasks)
                     .insert(EntityInspectorMarker)
-                    .insert(OnViewportLocationChange)
                     .component_signal::<SyncEntities, _>(unnest_children.signal().map_true(default))
                     .component_signal::<SyncOrphanEntities, _>(
                         unnest_children.signal().map_false(default),
@@ -248,8 +246,13 @@ impl ElementWrapper for EntityInspector {
                         .unhighlighted_color_signal(unhighlighted_color.signal())
                     }))
             })
-            .apply(flush_deferred_updaters)
-            .apply(El::<NodeBundle>::from)
+            .item(
+                El::<NodeBundle>::new()
+                .height_signal(viewport_height.signal().map(Val::Px))
+            )
+            .on_viewport_location_change(clone!((viewport_height) move |_, viewport| viewport_height.set_neq(viewport.height)))
+            // .apply(flush_deferred_updaters)
+            // .apply(El::<NodeBundle>::from)
             .apply(resize_border(
                 border_width.signal(),
                 border_radius.signal(),
@@ -259,6 +262,22 @@ impl ElementWrapper for EntityInspector {
             ))
             .apply(background_style(primary_background_color.signal()))
             .cursor(CursorIcon::Default)
+            // .layers_signal_vec(
+            //     pinned_entities
+            //     .signal_vec()
+            //     .map()
+            //     pinnable_header(
+            //         row_gap.signal(),
+            //         primary_background_color.signal(),
+            //         hovered.clone(),
+            //         expanded.clone(),
+            //         clone!((expanded, viewable) move || {
+            //             if viewable.get() {
+            //                 flip(&expanded)
+            //             }
+            //         }),
+            //     )
+            // )
     }
 }
 
@@ -452,6 +471,87 @@ struct Expanded;
 #[derive(Component)]
 struct LastExpandedHeader(Mutable<bool>);
 
+fn pinnable_header<E: Element>(
+    hovered: Mutable<bool>,
+    mut on_click: impl FnMut() + Send + Sync + 'static,
+    row_gap: Mutable<f32>,
+    primary_background_color: Mutable<Color>,
+) -> impl FnOnce(E) -> El<NodeBundle> {
+    move |el| {
+        let last_expanded_header = Mutable::new(false);
+        El::<NodeBundle>::new()
+            .apply(padding_style(BoxEdge::VERTICAL, row_gap.signal().map(div(2.))))
+            .width(Val::Percent(100.))
+            .cursor(CursorIcon::Pointer)
+            .apply(background_style(primary_background_color.signal()))
+            .hovered_sync(hovered.clone())
+            .on_click_with_system(move |In((entity, _)), mut styles: Query<&mut Style>, last_expanded_headers: Query<&LastExpandedHeader>,| {
+                on_click();
+                if let Ok(mut style) = styles.get_mut(entity) {
+                    style.top = Val::Px(0.);
+                }
+                if let Ok(LastExpandedHeader(last_expanded_header)) = last_expanded_headers.get(entity) {
+                    last_expanded_header.set_neq(false);
+                }
+            })
+            .child(el)
+            // TODO: shouldn't use El here but Stack is being weird with heights
+            .child_signal(
+                last_expanded_header
+                .signal()
+                .map_true(|| {
+                    El::<NodeBundle>::new()
+                    .width(Val::Percent(100.))
+                    .height(Val::Px(4.))
+                    .border_radius(BorderRadius::top(Val::Px(f32::MAX)))
+                    .with_style(|mut style| {
+                        style.position_type = PositionType::Absolute;
+                        style.top = Val::Px(18. + 5.);  // TODOTODO: these should not be hardcoded
+                        style.left = Val::Px(0.);  // TODO: wut in tarnation ? (faux shadow doesn't left align without this for some reason)
+                    })
+                    .apply(background_style(always(Color::BLACK.with_alpha(0.5))))
+                })
+            )
+            .update_raw_el(|raw_el| raw_el.insert(LastExpandedHeader(last_expanded_header)))
+    }
+}
+
+fn entity_header(
+    entity: Entity,
+    name: Mutable<Option<String>>,
+    hovered: Mutable<bool>,
+    font_size: Mutable<f32>,
+    highlighted_color: Mutable<Color>,
+    unhighlighted_color: Mutable<Color>,
+) -> impl Element + PointerEventAware {
+    HighlightableText::new()
+    // .align(Align::new().center_y())
+    .highlighted_signal(hovered.signal())
+    .with_text(clone!((font_size) move |text| {
+        text
+        .text_signal(name.signal_cloned().map_option(identity, || "Entity".to_string()).map(move |prefix| format!("{prefix} ({entity})")))
+        .font_size_signal(font_size.signal()) 
+    }))
+    .highlighted_color_signal(highlighted_color.signal())
+    .unhighlighted_color_signal(unhighlighted_color.signal())
+}
+
+fn div(x: f32) -> impl FnMut(f32) -> f32 {
+    move |y| y / x
+}
+
+fn mul(x: f32) -> impl FnMut(f32) -> f32 {
+    move |y| y * x
+}
+
+fn add(x: f32) -> impl FnMut(f32) -> f32 {
+    move |y| y + x
+}
+
+fn sub(x: f32) -> impl FnMut(f32) -> f32 {
+    move |y| y - x
+}
+
 impl ElementWrapper for EntityElement {
     type EL = Column<NodeBundle>;
     fn element_mut(&mut self) -> &mut Self::EL {
@@ -484,6 +584,12 @@ impl ElementWrapper for EntityElement {
             ..
         } = self;
         let name_option = name.get_cloned();
+        let left_padding = map_ref! {
+            let padding = padding.signal(),
+            let border_width = border_width.signal() => move {
+                padding - border_width
+            }
+        }.broadcast();
         el
         .update_raw_el(clone!((components, expanded) move |raw_el| {
             raw_el
@@ -533,58 +639,41 @@ impl ElementWrapper for EntityElement {
             }))
             // TODO: only sync when in view
             .component_signal::<SyncComponents, _>(expanded.signal().map_true(default))
+            // .insert(ResizeParentListener)
+            // .observe(|parent_resize: Trigger<ParentResize>, mut styles: Query<&mut Style>| {
+            //     let ParentResize(size) = parent_resize.event();
+            //     if let Ok(mut style) = styles.get_mut(parent_resize.entity()) {
+            //         // println!("{}", size.x);
+            //         style.width = Val::Px(size.x - (2. * 2.) - 1.);
+            //     }
+            // })
         }))
-        .width(Val::Percent(100.))
+        // .with_style(|mut style| style.left = Val::Px(2.))
         .item(show_name.then(|| {
-            let last_expanded_header = Mutable::new(false);
             let hovered = Mutable::new(false);
-            El::<NodeBundle>::new()
-            .width(Val::Percent(100.))
-            .cursor(CursorIcon::Pointer)
-            .apply(padding_style(BoxEdge::VERTICAL, row_gap.signal().map(|row_gap| row_gap / 2.)))
-            .apply(padding_style(BoxEdge::HORIZONTAL, padding.signal()))
-            .apply(background_style(primary_background_color.signal()))
+            entity_header(
+                entity,
+                name,
+                hovered.clone(),
+                font_size,
+                highlighted_color.clone(),
+                unhighlighted_color.clone(),
+            )
             .hovered_sync(hovered.clone())
-            .child(
-                HighlightableText::new()
-                .align(Align::new().center_y())
-                .highlighted_signal(hovered.signal())
-                .with_text(clone!((font_size) move |text| {
-                    text
-                    .text_signal(name.signal_cloned().map_option(identity, || "Entity".to_string()).map(move |prefix| format!("{prefix} ({entity})")))
-                    .font_size_signal(font_size.signal())
-                }))
-                .highlighted_color_signal(highlighted_color.signal())
-                .unhighlighted_color_signal(unhighlighted_color.signal())
+            .apply(
+                pinnable_header(
+                    hovered.clone(),
+                    clone!((expanded) move || flip(&expanded)),
+                    row_gap.clone(),
+                    primary_background_color,
+                )
             )
-            .on_click_with_system(clone!((expanded) move |In((entity, _)), mut styles: Query<&mut Style>| {
-                flip(&expanded);
-                if let Ok(mut style) = styles.get_mut(entity) {
-                    style.top = Val::Px(0.);
-                }
-            }))
-            // TODO: shouldn't use El here but Stack is being weird with heights
-            .child_signal(
-                last_expanded_header
-                .signal()
-                .map_true(|| {
-                    El::<NodeBundle>::new()
-                    .height(Val::Px(4.))
-                    .width(Val::Percent(120.))
-                    .with_style(|mut style| {
-                        style.position_type = PositionType::Absolute;
-                        style.top = Val::Px(18. + 5.);  // TODOTODO: these should not be hardcoded
-                        style.left = Val::Px(-20.);
-                    })
-                    .apply(background_style(always(Color::BLACK.with_alpha(0.5))))
-                })
-            )
-            .update_raw_el(|raw_el| raw_el.insert(LastExpandedHeader(last_expanded_header)))
+            .apply(padding_style(BoxEdge::HORIZONTAL, padding.signal()))
         }))
         .item_signal(if show_name { expanded.signal().boxed() } else { always(true).boxed() }.map_true(clone!((row_gap, column_gap, secondary_background_color, border_width, border_color, padding, highlighted_color, unhighlighted_color) move || {
             Column::<NodeBundle>::new()
                 .apply(move_style(Move::Right, padding.signal()))
-                .apply(horizontal_padding_style(padding.signal()))
+                .apply(padding_style(BoxEdge::HORIZONTAL, padding.signal()))
                 .apply(left_bordered_style(border_width.signal(), border_color.signal()))
                 .items_signal_vec({
                     let mut signal_vec = components.entries_cloned().boxed();
@@ -719,6 +808,55 @@ fn populate_enum_with_variant(
 #[derive(Component)]
 struct DroppedDown(Mutable<bool>);
 
+fn field_header(
+    name: String,
+    field_type: FieldType,
+    type_path: Mutable<Option<String>>,
+    viewable: Mutable<bool>,
+    hovered: Mutable<bool>,
+    // styles TODO: higher level abstraction for managing styles
+    row_gap: Mutable<f32>,
+    column_gap: Mutable<f32>,
+    highlighted_color: Mutable<Color>,
+    unhighlighted_color: Mutable<Color>,
+    type_path_color: Mutable<Color>,
+) -> impl Element + CursorOnHoverable {
+    Row::<NodeBundle>::new()
+    .apply(row_style(column_gap.signal()))
+    .item_signal(
+        viewable.signal().map_bool(
+        clone!((name, highlighted_color, unhighlighted_color, hovered) move || HighlightableText::new().with_text(|text| text.text(name.clone()))
+            .highlighted_color_signal(highlighted_color.signal())
+            .unhighlighted_color_signal(unhighlighted_color.signal())
+            .highlighted_signal(hovered.signal())
+            .type_erase()),
+        move || DynamicText::new()
+            .text(name.clone())
+            .color(bevy::color::palettes::basic::MAROON.into())
+            .type_erase(),
+        )
+        .map(|el| el.align(Align::new().top()))
+    )
+    .item_signal(
+        if let FieldType::Component(type_path) = field_type {
+            hovered.signal()
+            .map_true(clone!((type_path_color, type_path) move || {
+                DynamicText::new()
+                .text(type_path.clone())
+                .color_signal(type_path_color.signal())
+            }))
+            .boxed()
+        } else {
+            type_path.signal_cloned().map_some(clone!((hovered, type_path_color) move |type_path| {
+                DynamicText::new()
+                .text_signal(hovered.signal().map_bool(clone!((type_path) move || type_path.clone()), move || ShortName(&type_path).to_string()))
+                .color_signal(type_path_color.signal())
+            }))
+            .boxed()
+        }
+    )
+}
+
 impl FieldElement {
     fn new(
         entity: Entity,
@@ -734,6 +872,7 @@ impl FieldElement {
         let highlighted_color = Mutable::new(DEFAULT_HIGHLIGHTED_COLOR);
         let unhighlighted_color = Mutable::new(DEFAULT_UNHIGHLIGHTED_COLOR);
         let type_path_color = Mutable::new(DEFAULT_SECONDARY_BACKGROUND_COLOR);
+        let primary_background_color = Mutable::new(DEFAULT_PRIMARY_BACKGROUND_COLOR);
         let expanded = Mutable::new(false);
         let (name, access_option) = match field_type.clone() {
             FieldType::Component(type_path) => {
@@ -747,6 +886,7 @@ impl FieldElement {
         let el = Column::<NodeBundle>::new()
             .update_raw_el(|raw_el| {
                 raw_el
+                .component_signal::<Expanded, _>(expanded.signal().map_true(default))
                 .on_spawn_with_system(clone!((expanded, field_type) move |In(ui_entity): In<Entity>, parents: Query<&Parent>, progresses: Query<&InspectionTargetProgress>, mut commands: Commands| {
                     for parent in parents.iter_ancestors(ui_entity) {
                         if let Ok(InspectionTargetProgress { target, pending }) = progresses.get(parent) {
@@ -901,50 +1041,32 @@ impl FieldElement {
                 }))
             })
             .item({
-                let hovered = Mutable::new(false);
-                Row::<NodeBundle>::new()
-                .with_style(|mut style| style.width = Val::Percent(100.))
-                .apply(padding_style(BoxEdge::VERTICAL, row_gap.signal().map(|row_gap| row_gap / 2.)))
-                .apply(row_style(column_gap.signal()))
-                .on_click(clone!((expanded, viewable) move || {
-                    if viewable.get() {
-                        flip(&expanded)
-                    }
-                }))
-                .cursor_disableable_signal(CursorIcon::Pointer, signal::not(viewable.signal()))
-                .hovered_sync(hovered.clone())
-                .item_signal(
-                    viewable.signal().map_bool(
-                    clone!((name, highlighted_color, unhighlighted_color, hovered) move || HighlightableText::new().with_text(|text| text.text(name.clone()))
-                        .highlighted_color_signal(highlighted_color.signal())
-                        .unhighlighted_color_signal(unhighlighted_color.signal())
-                        .highlighted_signal(hovered.signal())
-                        .type_erase()),
-                    move || DynamicText::new()
-                        .text(name.clone())
-                        .color(bevy::color::palettes::basic::MAROON.into())
-                        .type_erase(),
+                let hovered=  Mutable::new(false);
+                field_header(
+                    name,
+                    field_type,
+                    type_path.clone(),
+                    viewable.clone(),
+                    hovered.clone(),
+                    row_gap.clone(),
+                    column_gap.clone(),
+                    highlighted_color.clone(),
+                    unhighlighted_color.clone(),
+                    type_path_color.clone(),
+                )
+                .apply(
+                    pinnable_header(
+                        hovered.clone(),
+                        clone!((expanded, viewable) move || {
+                            if viewable.get() {
+                                flip(&expanded)
+                            }
+                        }),
+                        row_gap.clone(),
+                        primary_background_color,
                     )
-                    .map(|el| el.align(Align::new().top()))
                 )
-                .item_signal(
-                    if let FieldType::Component(type_path) = field_type {
-                        hovered.signal()
-                        .map_true(clone!((type_path_color, type_path) move || {
-                            DynamicText::new()
-                            .text(type_path.clone())
-                            .color_signal(type_path_color.signal())
-                        }))
-                        .boxed()
-                    } else {
-                        type_path.signal_cloned().map_some(clone!((type_path_color) move |type_path| {
-                            DynamicText::new()
-                            .text_signal(hovered.signal().map_bool(clone!((type_path) move || type_path.clone()), move || ShortName(&type_path).to_string()))
-                            .color_signal(type_path_color.signal())
-                        }))
-                        .boxed()
-                    }
-                )
+                .cursor_disableable_signal(CursorIcon::Pointer, signal::not(viewable.signal()))
             })
             .item_signal(expanded.signal().map_true(
                 clone!((
@@ -971,7 +1093,7 @@ impl FieldElement {
                             Dropdown::new(options)
                             .on_click_outside(clone!((show_dropdown) move || show_dropdown.set_neq(false)))
                             .with_show_dropdown(show_dropdown.clone())
-                            .apply(padding_style(BoxEdge::VERTICAL, row_gap.signal().map(|row_gap| row_gap / 2.)))
+                            .apply(padding_style(BoxEdge::VERTICAL, row_gap.signal().map(div(2.))))
                             .update_raw_el(clone!((access_option, selected, dropdown_entity, node_type) move |raw_el| {
                                 raw_el
                                 .insert(Accessory { entity, component, access_option })
@@ -1094,11 +1216,11 @@ impl FieldElement {
                             },
                         }))
                         .map(Option::flatten)
-                        .map(clone!((access_option, row_gap) move |mut el_option| {
-                            el_option = el_option
-                            .map(|el| el.apply(padding_style(BoxEdge::VERTICAL, row_gap.signal().map(|row_gap| row_gap / 2.))))
-                            .map(clone!((access_option) move |el| el.update_raw_el(|raw_el| raw_el.insert(Accessory { entity, component, access_option }))));
+                        .map(clone!((access_option) move |el_option| {
                             el_option
+                            .map(clone!((access_option) move |el| {
+                                el.update_raw_el(|raw_el| raw_el.insert(Accessory { entity, component, access_option }))
+                            }))
                         }))
                     )
                 })
@@ -2052,6 +2174,25 @@ fn left_align_editors(
     }
 }
 
+#[derive(Event)]
+pub struct ParentResize(pub Vec2);
+
+#[derive(Component)]
+pub struct ResizeParentListener;
+
+fn parent_resize_dispatcher(
+    data: Query<(Entity, &Node), (With<ResizeParent>, Changed<Node>)>,
+    parent_resize_listeners: Query<&ResizeParentListener>,
+    children: Query<&Children>,
+    mut commands: Commands,
+) {
+    for (entity, node) in data.iter() {
+        let size = node.size();
+        let listeners = children.iter_descendants(entity).filter(|&child| parent_resize_listeners.contains(child)).collect::<Vec<_>>();
+        commands.trigger_targets(ParentResize(size), listeners);
+    }
+}
+
 #[derive(Component, Default)]
 struct SyncOrphanEntities;
 
@@ -2063,7 +2204,7 @@ struct SyncEntities;
 // actually turns out even this isn't scroll perfect if one scrolls fast enough, and using
 // scrollbars complicates things further ...
 fn expanded_parent_pinner(
-    inspectors: Query<(Entity, &MutableViewport), (With<EntityInspectorMarker>, Without<ScrollDisabled>)>,
+    inspectors: Query<Entity, (With<EntityInspectorMarker>, Without<ScrollDisabled>)>,
     rect: Query<(&Node, &GlobalTransform)>,
     children: Query<&Children>,
     parents: Query<&Parent>,
@@ -2076,7 +2217,7 @@ fn expanded_parent_pinner(
     mut commands: Commands,
 ) {
     for &MouseWheel { y, .. } in mouse_wheels.read() {
-        for (entity, mutable_viewport) in inspectors.iter() {
+        for entity in inspectors.iter() {
             // TODO: use relations for this
             if !resize_parents_cache.contains_key(&entity) {
                 for parent in parents.iter_ancestors(entity) {
@@ -2097,25 +2238,31 @@ fn expanded_parent_pinner(
                     0.
                 };
                 let mut pinned = 0;
-                for child in children.iter_descendants(entity) {
-                    if expanded.contains(child) {
-                        if let Ok((node, global_transform)) = rect.get(child) {
-                            let rect1 = node.logical_rect(global_transform);
+                let mut last_header_option = None;
+                for maybe_expanded in children.iter_descendants(entity) {
+                    if expanded.contains(maybe_expanded) {
+                        if let Ok((container, global_transform)) = rect.get(maybe_expanded) {
+                            let rect1 = container.logical_rect(global_transform);
+                            println!("{}: rect 1: {:?}", maybe_expanded, container.size());
                             // TODOTODO: need to get this 20. from the node's scroll settings, which means i need to make basic scroll handler a component
-                            let rel_y = rect1.min.y + if y < 0. { -20. } else { 20. } - top_offset;
+                            let rel_y = rect1.min.y + if y < 0. { -DEFAULT_SCROLL_PIXELS } else { DEFAULT_SCROLL_PIXELS } - top_offset - (pinned as f32 * 18.);
                             if let Some(&child) = children
-                                .get(child)
+                                .get(maybe_expanded)
                                 .ok()
                                 .and_then(|children| children.first())
                             {
-                                if let Ok((node, global_transform)) = rect.get(child) {
-                                    let rect1 = node.logical_rect(global_transform);
+                                if let Ok((expanded, global_transform)) = rect.get(child) {
+                                    let rect2 = expanded.logical_rect(global_transform);
                                     // println!("{:?}", mutable_viewport.scene());
                                     // println!("{:?}", mutable_viewport.viewport());
-                                    println!("rect 2: {:?}", rect1);
+                                    println!("{}: rect 2: {:?}", child, expanded.size());
+                                    println!("{}: rel_y: {}", child, rel_y);
                                     if let Ok(mut style) = styles.get_mut(child) {
                                         if rel_y < 0. {
-                                            style.top = Val::Px(-rel_y);
+                                            // TODO: vscode shadow can hang outside of parent body
+                                            let max_offset = container.size().y - expanded.size().y;
+                                            style.top = Val::Px(-(rel_y.max(-max_offset)) - 1.);
+                                            pinned += 1;
                                             // TODOTODO: get this 5. from row gap somehow
                                             if matches!(style.height, Val::Auto) || {
                                                 if let Val::Px(height) = style.height {
@@ -2129,22 +2276,30 @@ fn expanded_parent_pinner(
                                             if let Some(mut entity) = commands.get_entity(child) {
                                                 entity.try_insert(ZIndex::Local(i32::MAX));
                                             }
-                                            if let Ok(LastExpandedHeader(last_expanded_header)) = last_expanded_headers.get(child) {
-                                                last_expanded_header.set_neq(true);
-                                            }
+                                            last_header_option = Some(maybe_expanded);
                                         } else {
                                             style.top = Val::Px(0.);
-                                            // style.height = Val::Auto;
                                             if let Some(mut entity) = commands.get_entity(child) {
                                                 entity.remove::<ZIndex>();
                                             }
-                                            if let Ok(LastExpandedHeader(last_expanded_header)) = last_expanded_headers.get(child) {
+                                            if let Ok(LastExpandedHeader(last_expanded_header)) = last_expanded_headers.get(maybe_expanded) {
                                                 last_expanded_header.set_neq(false);
                                             }
                                         }
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+                if let Some(last_header) = last_header_option {
+                    if let Ok(LastExpandedHeader(last_expanded_header)) = last_expanded_headers.get(last_header) {
+                        last_expanded_header.set_neq(true);
+                    }
+                    for parent in parents.iter_ancestors(last_header) {
+                        if let Ok(LastExpandedHeader(last_expanded_header)) = last_expanded_headers.get(parent) {
+                            println!("here");
+                            last_expanded_header.set_neq(false);
                         }
                     }
                 }
@@ -2170,7 +2325,9 @@ pub(super) fn plugin(app: &mut App) {
                 left_align_editors.run_if(resource_removed::<FocusedTextInput>()),
             )
                 .chain(),
-            expanded_parent_pinner.run_if(any_with_component::<EntityInspectorMarker>),
+            // TODO: i think the .before made it a bit better, but can it be frame perfect ?
+            expanded_parent_pinner.run_if(any_with_component::<EntityInspectorMarker>).before(ui_layout_system),
+            parent_resize_dispatcher.run_if(any_with_component::<ResizeParent>.and_then(any_with_component::<ResizeParentListener>)),
         ),
     )
     .init_resource::<FieldPathCache>()

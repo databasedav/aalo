@@ -1,7 +1,7 @@
 use super::{defaults::*, globals::*, style::*, utils::*};
 use crate::impl_syncers;
 use bevy::{ecs::system::SystemId, prelude::*};
-use haalka::prelude::*;
+use haalka::{prelude::*, raw::utils::remove_system_holder_on_remove};
 use std::{fmt::Display, i32, ops::Neg};
 
 #[derive(Default)]
@@ -205,7 +205,7 @@ impl<T> From<T> for OptionData<T> {
 
 // TODO: these should be horizontally resizable
 pub struct Dropdown<T> {
-    el: Stack<NodeBundle>,
+    el: El<NodeBundle>,
     options: MutableVec<OptionData<T>>,
     option_handler_system: Mutable<Option<SystemId<usize>>>,
     selected: Mutable<Option<usize>>,
@@ -221,7 +221,7 @@ pub struct Dropdown<T> {
 }
 
 impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for Dropdown<T> {
-    type EL = Stack<NodeBundle>;
+    type EL = El<NodeBundle>;
     fn element_mut(&mut self) -> &mut Self::EL {
         &mut self.el
     }
@@ -255,9 +255,11 @@ impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for 
         }
         .broadcast();
         let hovered = Mutable::new(false);
+        // TODO: `Stack` does not play well with flex column, using an el allows us to avoid managing the height entirely
         el
-        .apply(height_style(height.signal()))
-        .layer(
+        // .apply(height_style(height.signal()))
+        // .height(Val::Percent(100.))
+        .child(
             // TODO: should be able to DRY most of the display element for the dropdown option elements
             Stack::<NodeBundle>::new()
                 .apply(border_style(border_width.signal(), signal::and(hovered.signal(), signal::not(show_dropdown.signal())).map_bool_signal(clone!((highlighted_color) move || highlighted_color.signal()), clone!((border_color) move || border_color.signal()))))
@@ -276,7 +278,7 @@ impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for 
                     .width(Val::Percent(100.))
                     .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
                     .apply(border_style(border_width.signal(), signal::and(show_dropdown.signal(), hovered.signal()).map_bool_signal(clone!((highlighted_color) move || highlighted_color.signal()), clone!((background_color) move || background_color.signal()))))
-                    .apply(all_padding_style(padding.signal()))
+                    .apply(padding_style(BoxEdge::ALL, padding.signal()))
                     .child(
                         El::<TextBundle>::new()
                             .text(Text::from_section(
@@ -303,7 +305,7 @@ impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for 
                     )
                 )
             )
-            .layer_signal(show_dropdown.signal().map_true(
+            .child_signal(show_dropdown.signal().map_true(
                 clone!((options, selected) move || {
                     let option_handler_system = option_handler_system.get();
                     Column::<NodeBundle>::new()
@@ -312,9 +314,9 @@ impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for 
                     .width(Val::Percent(100.))
                     .with_style(|mut style| {
                         style.position_type = PositionType::Absolute;
-                        // style.top = Val::Percent(100.);  // TODO: this should work
+                        style.top = Val::Percent(100.);  // TODO: this should work
                     })
-                    .on_signal_with_style(height.signal().map(Val::Px), |mut style, height| style.top = height)
+                    // .on_signal_with_style(height.signal().map(Val::Px), |mut style, height| style.top = height)
                     .apply(border_width_style([BoxEdge::Left, BoxEdge::Right, BoxEdge::Bottom], border_width.signal()))
                     .apply(border_radius_style([BoxCorner::BottomLeft, BoxCorner::BottomRight], border_radius.signal()))
                     .apply(background_style(background_color.signal()))
@@ -339,7 +341,7 @@ impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for 
                                 .apply(margin_style([BoxEdge::Left, BoxEdge::Right], border_width.signal().dedupe().map(Neg::neg)))
                                 .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
                                 .apply(background_style(background_color.signal()))
-                                .apply(all_padding_style(padding.signal()))
+                                .apply(padding_style(BoxEdge::ALL, padding.signal()))
                                 .apply(border_style(border_width.signal(), hovered.signal().map_bool_signal(clone!((highlighted_color) move || highlighted_color.signal()), clone!((background_color) move || background_color.signal()))))
                                 .cursor(CursorIcon::Pointer)
                                 .width(Val::Percent(100.))
@@ -380,7 +382,7 @@ impl<T> Dropdown<T> {
         T: Clone + PartialEq + Display + Send + Sync + 'static,
     {
         Self {
-            el: Stack::<NodeBundle>::new(),
+            el: El::<NodeBundle>::new(),
             options,
             option_handler_system: Mutable::new(None),
             selected: Mutable::new(None),
@@ -426,13 +428,7 @@ impl<T> Dropdown<T> {
                     let handler = entity.world_scope(|world| register_system(world, handler));
                     system_holder.set(Some(handler));
                 }))
-                .on_remove(move |world, _| {
-                    if let Some(handler) = system_holder.get() {
-                        world.commands().add(move |world: &mut World| {
-                            let _ = world.remove_system(handler);
-                        })
-                    }
-                })
+                .apply(remove_system_holder_on_remove(system_holder))
         })
     }
 
