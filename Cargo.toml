@@ -3,17 +3,45 @@ name = "aalo"
 version = "0.0.0"
 edition = "2021"
 categories = ["asynchronous", "gui", "game-development"]
-description = "aka bevy-inspector-haalka, a port of bevy-inspector-egui"
+description = "aka bevy-inspector-haalka, a bevy_ui native inspector for bevy"
 exclude = ["assets/", ".github/", "crates/"]
-keywords = ["ui", "reactive", "signals", "gamedev", "bevy"]
+keywords = ["bevy", "inspector", "ui", "gamedev", "signals"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/databasedav/aalo"
 documentation = "https://docs.rs/aalo"
 
 [dependencies]
-bevy = "0.14.1"
-haalka = { path = "../haalka" }
-pretty-type-name = "1.0.1"
+bevy_app = "0.15"
+bevy_asset = "0.15"
+bevy_color = "0.15"
+bevy_core = "0.15"
+bevy_core_pipeline = "0.15"
+bevy_derive = "0.15"
+bevy_ecs = "0.15"
+bevy_hierarchy = "0.15"
+bevy_image = "0.15"
+bevy_input = "0.15"
+bevy_log = "0.15"
+bevy_math = "0.15"
+bevy_picking = "0.15"
+bevy_reflect = "0.15"
+bevy_render = "0.15"
+bevy_sprite = "0.15"
+bevy_tasks = "0.15"
+bevy_text = "0.15"
+bevy_time = "0.15"
+bevy_transform = "0.15"
+bevy_ui = "0.15"
+bevy_utils = "0.15"
+bevy_window = "0.15"
+haalka = { path = "../haalka", version = "0.4" }
+disqualified = "1.0"
+paste = "1.0"
+nucleo-matcher = "0.3"
+strum = { version = "0.26", features = ["derive"] }
+num = "0.4"
+bevy_rich_text3d = { version = "0.2", default-features = false, features = ["2d"] }
 
 [dev-dependencies]
-bevy-inspector-egui = "0.25"
+bevy = { version = "0.15", features = ["bevy_dev_tools"] }
+

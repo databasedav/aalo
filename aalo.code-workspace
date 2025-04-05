@@ -1,0 +1,12 @@
+{
+  "folders": [
+    {
+      "name": "aalo",
+      "path": "."
+    },
+    {
+      "name": "haalka",
+      "path": "../haalka"
+    },
+  ],
+}
