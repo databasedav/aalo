@@ -4244,8 +4244,9 @@ where
     let border_width = GLOBAL_BORDER_WIDTH.clone();
     let border_color = GLOBAL_BORDER_COLOR.clone();
     let padding = GLOBAL_PADDING.clone();
+    #[allow(clippy::unwrap_or_default)]
     text_input_option
-        .unwrap_or_default()
+        .unwrap_or_else(TextInput::new)
         // TODO: height_signal alone is not working for some reason ??
         .height(Val::Px(
             font_size.get() + border_width.get() * 4. + padding.get() + 3.,
@@ -5699,8 +5700,9 @@ pub fn resize_border<E: Element + Sizeable>(
                 edge_downs[3].signal()
             ),
         };
+        #[allow(clippy::unwrap_or_default)]
         let mut el = wrapper_stack_option
-            .unwrap_or_default()
+            .unwrap_or_else(Stack::<Node>::new)
             .update_raw_el(|raw_el| raw_el.insert(ResizeParent))
             .apply(border_radius_style(BoxCorner::ALL, radius.signal()))
             .layer({
