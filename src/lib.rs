@@ -4,6 +4,7 @@ use bevy_ecs::prelude::*;
 use bevy_picking::prelude::*;
 use bevy_ui::prelude::*;
 use bevy_utils::prelude::*;
+use bevy_render::prelude::*;
 use haalka::prelude::*;
 use std::sync::{Arc, Mutex};
 
@@ -16,7 +17,6 @@ pub mod utils;
 pub mod widgets;
 
 use inspector::*;
-use style::*;
 
 struct WorldInspectorConfig {
     inspector_transformers:
@@ -126,31 +126,22 @@ impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {
             let transformers = Arc::new(transformers);
             app.add_systems(
                 PostStartup,
-                clone!((transformers) move |camera_2ds: Query<Entity, With<Camera2d>>,
-                      camera_3ds: Query<Entity, With<Camera3d>>,
-                      mut commands: Commands| {
-                    let camera_entity_option =
-                        camera_2ds.iter().next().or(camera_3ds.iter().next());
+                clone!((transformers) move |mut commands: Commands| {
+                    let camera = commands.spawn((Camera2d, Camera { order: AALO_TEXT_CAMERA_ORDER - 1, ..default() })).id();
                     commands.queue(clone!((transformers) move |world: &mut World| {
                         El::<Node>::new()
                             .ui_root()
                             .update_raw_el(move |raw_el| {
-                                let mut raw_el = raw_el.insert(PickingBehavior {
+                                raw_el
+                                .insert(PickingBehavior {
                                     should_block_lower: false,
                                     ..default()
-                                });
-                                if let Some(camera) = camera_entity_option {
-                                    raw_el = raw_el.with_entity(move |mut entity| {
-                                        // https://github.com/bevyengine/bevy/discussions/11223
-                                        entity.insert(TargetCamera(camera));
-                                    });
-                                }
-                                raw_el
+                                })
+                                .insert(TargetCamera(camera))
                             })
                             .width(Val::Percent(100.))
                             .height(Val::Percent(100.))
                             .cursor(CursorIcon::System(SystemCursorIcon::Default))
-                            .apply(padding_style([BoxEdge::Top, BoxEdge::Left], always(20.)))
                             .child({
                                 let mut inspector = Inspector::new();
                                 if unnest_children {

@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 use std::{
     any::TypeId,
     borrow::Cow,
@@ -12,7 +13,7 @@ use std::{
 };
 
 use bevy_app::prelude::*;
-use bevy_asset::{prelude::*, ReflectAsset, UntypedAssetId};
+use bevy_asset::{embedded_asset, prelude::*, ReflectAsset, UntypedAssetId};
 use bevy_color::{self, prelude::*};
 use bevy_core::prelude::*;
 use bevy_core_pipeline::prelude::*;
@@ -70,10 +71,15 @@ use strum::{Display, EnumIter, IntoEnumIterator};
 use super::{defaults::*, globals::*, reflect::*, style::*, utils::*, widgets::*};
 use crate::{impl_syncers, signal_or};
 
+// TODO: (haalka) make UiRoot a component ?
+
 // TODO: implement frontend for at least all ui node types; how abt char, str, unit ? for unit, see (resources, Time, .context), should just be a tooltip
 // TODO: dropdown z index is greater than headers so it appears above them when scrolling up
 // TODO: counters for haalka and aalo systems with tooltips saying they can't be expanded because that would cause infinite recursion
 // TODO: api for only showing certain object types, and only running particular syncers if these settings are such
+// TODO: toggle inspector
+// TODO: docs
+// TODO: states reflection
 
 // TODO: dragging numeric field doesn't work when number is very big ?
 // TODO: text input growing is a bit too much / looks kinda cringe (y does text end align to center ??)
@@ -1077,6 +1083,18 @@ impl ElementWrapper for Inspector {
                 raw_el
                 .insert(PickingBehavior::default())
                 .apply(manage_dragging_component)
+                .on_event_with_system_stop_propagation::<Pointer<DragStart>, _>(|In((entity, drag_start)): In<(Entity, Pointer<DragStart>)>, mut commands: Commands| {
+                    if matches!(drag_start.button, PointerButton::Primary) {
+                        commands.insert_resource(CursorOnHoverDisabled);
+                        commands.insert_resource(UpdateHoverStatesDisabled);
+                    }
+                })
+                .on_event_with_system_stop_propagation::<Pointer<DragEnd>, _>(|In((entity, drag_end)): In<(Entity, Pointer<DragEnd>)>, mut commands: Commands| {
+                    if matches!(drag_end.button, PointerButton::Primary) {
+                        commands.remove_resource::<CursorOnHoverDisabled>();
+                        commands.remove_resource::<UpdateHoverStatesDisabled>();
+                    }
+                })
                 .on_event_with_system::<Pointer<Drag>, _>(|
                     In((entity, drag)): In<(Entity, Pointer<Drag>)>,
                     resize_parent_cache: ResizeParentCache,
@@ -1188,7 +1206,7 @@ impl ElementWrapper for Inspector {
                                                         ..Default::default()
                                                     },
                                                     Mesh2d::default(),
-                                                    RenderLayers::layer(1),
+                                                    AALO_TEXT_CAMERA_RENDER_LAYERS.clone(),
                                                     LightRays,
                                                 ))
                                                 .on_signal_with_component::<_, Text3dStyling>(font_size.signal(), |mut text_3d_styling, font_size| {
@@ -1915,7 +1933,7 @@ impl ElementWrapper for Inspector {
                     raw_el
                     .insert(Tooltip)
                     .insert(Visibility::Hidden)
-                    // .insert(RenderLayers::layer(2))
+                    // .insert(RenderLayers::layer(x))
                     .on_spawn_with_system(move |
                         In(entity),
                         mut inspector_ancestor: InspectorAncestor,
@@ -3089,7 +3107,7 @@ fn object_type_header_with_count(
 struct FieldsColumn;
 
 #[derive(Clone, Copy, Debug)]
-enum ComponentOwnerType {
+pub enum ComponentOwnerType {
     Entity(Entity),
     Resource,
 }
@@ -3246,7 +3264,7 @@ impl FieldElement {
                 }))
                 .observe(scroll_to_header_on_birth(true))
                 .on_spawn_with_system(|In(entity), mut commands: Commands| commands.trigger_targets(CheckInspectionTargets, entity))
-                .on_spawn(clone!((viewability, expanded, node_type, type_path, enum_data_option, field_type) move |world, ui_entity| {
+                .on_spawn(clone!((viewability, node_type, type_path, enum_data_option, field_type) move |world, ui_entity| {
                     // TODO: more intelligent way to get this height? waiting for node to reach "full size" is pretty cringe
                     let mut field_path_option = None;
                     let type_registry = world.resource::<AppTypeRegistry>().clone();
@@ -3761,6 +3779,7 @@ static FRONTENDS: Lazy<
         ("glam::BVec2", Box::new(|| bool_vec_field(&["x", "y"]).type_erase()) as Box<_>),
         ("glam::BVec3", Box::new(|| bool_vec_field(&["x", "y", "z"]).type_erase()) as Box<_>),
         ("glam::BVec4", Box::new(|| bool_vec_field(&["x", "y", "z", "w"]).type_erase()) as Box<_>),
+        ("glam::Quat", Box::new(|| numeric_vec_field::<f32>(&["x", "y", "z", "w"], None::<MutableSignal<f32>>, None).type_erase()) as Box<_>),
         ("alloc::string::String", Box::new(|| string_field::<String>().type_erase()) as Box<_>),
         ("alloc::borrow::Cow<str>", Box::new(|| string_field::<Cow<str>>().type_erase()) as Box<_>),
         ("bevy_ecs::entity::Entity", Box::new(|| entity_field().type_erase()) as Box<_>),
@@ -3900,10 +3919,7 @@ fn bool_vec_field(fields: &'static [&str]) -> impl Element {
 
 pub fn has_frontend(type_path: &str) -> bool {
     FRONTENDS.read().unwrap().contains_key(type_path)
-        || CUSTOM_FRONTENDS
-            .read()
-            .unwrap()
-            .contains_key(type_path)
+        || CUSTOM_FRONTENDS.read().unwrap().contains_key(type_path)
 }
 
 pub fn frontend(type_path: &str) -> Option<impl Element> {
@@ -6164,7 +6180,7 @@ impl Material2d for LightRaysMaterial {
     }
 
     fn fragment_shader() -> ShaderRef {
-        ShaderRef::Path("light_rays.wgsl".into())
+        ShaderRef::Path("embedded://aalo/assets/light_rays.wgsl".into())
     }
 }
 
@@ -6182,11 +6198,16 @@ fn update_light_rays_material(
     }
 }
 
+pub const AALO_TEXT_CAMERA_ORDER: isize = bevy_dev_tools::ui_debug_overlay::LAYOUT_DEBUG_CAMERA_ORDER - 1;
+pub static AALO_TEXT_CAMERA_RENDER_LAYERS: Lazy<RenderLayers> = Lazy::new(|| {
+    RenderLayers::layer(bevy_dev_tools::ui_debug_overlay::LAYOUT_DEBUG_LAYERS.iter().next().unwrap() - 1)
+});
+
 #[derive(Component, Default)]
 #[require(
     Camera2d,
-    Camera(||Camera { order: 1, clear_color: ClearColorConfig::None,..default() }),
-    RenderLayers(|| RenderLayers::layer(1)),
+    Camera(||Camera { order: AALO_TEXT_CAMERA_ORDER, clear_color: ClearColorConfig::None, ..default() }),
+    RenderLayers(|| AALO_TEXT_CAMERA_RENDER_LAYERS.clone()),
 )]
 struct AaloTextCamera;
 
@@ -6338,10 +6359,6 @@ struct OnPointerUpFlush;
 #[derive(Resource, Default)]
 pub struct OnPointerUpHandlers(pub Vec<Box<dyn FnMut() + Send + Sync + 'static>>);
 
-fn on_pointer_up_handlers_pending(handlers: Res<OnPointerUpHandlers>) -> bool {
-    !handlers.0.is_empty()
-}
-
 fn listen_for_pointer_release(mouse_inputs: Res<ButtonInput<MouseButton>>, mut commands: Commands) {
     if mouse_inputs.just_released(MouseButton::Left) {
         commands.trigger(OnPointerUpFlush);
@@ -6357,6 +6374,7 @@ pub(super) fn plugin(app: &mut App) {
     if !app.is_plugin_added::<HaalkaPlugin>() {
         app.add_plugins(HaalkaPlugin);
     }
+    embedded_asset!(app, "assets/light_rays.wgsl");
     app.add_plugins(Material2dPlugin::<LightRaysMaterial>::default())
         .add_plugins(Text3dPlugin {
             load_system_fonts: true,

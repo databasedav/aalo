@@ -13,6 +13,7 @@ dependencies = [
  "bevy_core",
  "bevy_core_pipeline",
  "bevy_derive",
+ "bevy_dev_tools",
  "bevy_ecs",
  "bevy_hierarchy",
  "bevy_image",

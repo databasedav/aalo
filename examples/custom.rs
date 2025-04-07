@@ -35,7 +35,7 @@ fn init_custom_bool_frontend(mut world: DeferredWorld, entity: Entity, _: Compon
             if let Some(cur) = cur_option {
                 commands
                     .entity(text)
-                    .insert(Text::new(if cur { "true" } else { "false" }));
+                    .insert(Text(cur.to_string()));
             }
         },
     );
@@ -51,7 +51,7 @@ fn init_custom_bool_frontend(mut world: DeferredWorld, entity: Entity, _: Compon
                         "false" => false,
                         _ => return,
                     };
-                    // one of these will silently error depending on if its the field or component
+                    // one of these will silently error depending on if it's the field or component
                     // target, we just do both here for the convenience of using the same frontend
                     field.update(click.entity(), (!cur).clone_value());
                     field.update(click.entity(), CustomBoolComponent(!cur).clone_value());

@@ -6,7 +6,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(AaloPlugin::new().world().with_inspector(|inspector| {
-            inspector.jump_to(("entity", "my cube", "globaltransform", ".0.translation"))
+            inspector.jump_to(("entity", "my cube", "transform", ".translation"))
         }))
         .add_systems(Startup, setup)
         .run();

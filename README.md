@@ -6,11 +6,74 @@ in bengali, aalo means "light" (i.e. photons), not to be confused with haalka !
 
 [aalo](https://github.com/databasedav/aalo) is a [haalka](https://github.com/databasedav/haalka) port (in progress) of [bevy-inspector-egui](https://github.com/jakobhellermann/bevy-inspector-egui).
 
-## registering custom frontends
+## setup
 
-use `register_frontend`, passing in a fully qualified type path and a function that returns an `impl Bundle` e.g. `Node`
+
+```toml
+[dependencies]
+aalo = { version = "0.0", optional = true }
+
+[features]
+development = ["aalo"]
+```
 
 ```rust
+#[cfg(feature = "development")]
+use aalo::prelude::*;
+
+#[cfg(feature = "development")]
+app.add_plugins(AaloPlugin::new().world());
+```
+
+***HIGHLY RECOMMENDED***, while not required, aalo is much snappier when compiled in release mode, you'll only need to do so once
+
+```toml
+[profile.dev.package.aalo]
+opt-level = 3 
+```
+
+## registering custom frontends
+
+use `register_frontend`, passing in a fully qualified type path and a function that returns an `impl Bundle`, e.g. `Node`, whose `Entity` also has a `FieldListener` `Component`; `FieldListener` is just a wrapper around a `SystemId<In<Box<dyn PartialReflect>>>`, which will be forwarded the corresponding field's value every frame it is visible in the inspector
+
+```rust
+fn init_custom_bool_frontend(mut world: DeferredWorld, entity: Entity, _: ComponentId) {
+    let mut commands = world.commands();
+    let text = commands.spawn_empty().id();
+    let system = commands.register_system(
+        move |In(reflect): In<Box<dyn PartialReflect>>, mut commands: Commands| {
+            let cur_option = reflect.try_downcast_ref::<bool>().copied().or_else(|| {
+                CustomBoolComponent::from_reflect(reflect.as_ref())
+                    .map(|CustomBoolComponent(cur)| cur)
+            });
+            if let Some(cur) = cur_option {
+                commands
+                    .entity(text)
+                    .insert(Text::new(if cur { "true" } else { "false" }));
+            }
+        },
+    );
+    commands
+        .entity(entity)
+        .add_child(text)
+        .insert(FieldListener::new(system))
+        .observe(
+            move |click: Trigger<Pointer<Click>>, texts: Query<&Text>, mut field: TargetField| {
+                if let Ok(Text(text)) = texts.get(text) {
+                    let cur = match text.as_str() {
+                        "true" => true,
+                        "false" => false,
+                        _ => return,
+                    };
+                    // one of these will silently error depending on if it's the field or component
+                    // target, we just do both here for the convenience of using the same frontend
+                    field.update(click.entity(), (!cur).clone_value());
+                    field.update(click.entity(), CustomBoolComponent(!cur).clone_value());
+                }
+            },
+        );
+}
+
 #[derive(Component)]
 #[require(Node)]
 #[component(on_add = init_custom_bool_frontend)]
