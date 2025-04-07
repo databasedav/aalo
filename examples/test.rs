@@ -1,7 +1,6 @@
-use aalo::{
-    inspector::{EntityData, InspectionTargetRoot},
-    AaloPlugin,
-};
+#![allow(clippy::all)]
+
+use aalo::prelude::*;
 use bevy::prelude::*;
 use bevy_math::Vec3A;
 use haalka::prelude::*;
@@ -104,7 +103,7 @@ fn main() {
 }
 
 fn camera(mut commands: Commands) {
-    // commands.spawn((Camera2d, IsDefaultUiCamera));
+    commands.spawn((Camera2d, IsDefaultUiCamera));
 }
 
 #[derive(Clone, PartialEq, Component, Reflect, EnumIter, Display)]
@@ -169,8 +168,8 @@ struct NonZeroHolder(pub std::num::NonZeroI64);
 /// set up a simple 3D scene
 fn setup(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    // mut meshes: ResMut<Assets<Mesh>>,
+    // mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     commands.spawn((FloatWrapper(f32::MAX - 100.), Name::new("FloatWrapper")));
     commands.spawn((BoolComponent::default(), Name::new("BoolComponent")));

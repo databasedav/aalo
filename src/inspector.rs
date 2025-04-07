@@ -1,4 +1,3 @@
-#[allow(dead_code)]
 use std::{
     any::TypeId,
     borrow::Cow,
@@ -6,7 +5,6 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     convert::identity,
     fmt::{Debug, Display},
-    i32, isize,
     ops::{Deref, DerefMut, Not},
     str::FromStr,
     sync::{Arc, Mutex, OnceLock, RwLock},
@@ -134,6 +132,7 @@ use crate::{impl_syncers, signal_or};
 // TODO: inspector entities appear above resize borders, just wait for https://github.com/bevyengine/bevy/issues/14773
 // TODO: dropdowns cannot extend past bounds of inspector
 
+#[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
 pub struct EntityData {
     pub name: Mutable<Option<String>>,
@@ -154,6 +153,7 @@ pub type EntitySignalVec = std::pin::Pin<Box<dyn SignalVec<Item = (Entity, Entit
 pub type ComponentsSignalVec =
     std::pin::Pin<Box<dyn SignalVec<Item = (ComponentId, FieldData)> + Send>>;
 
+#[allow(clippy::type_complexity)]
 /// Configuration frontend for entity inspecting elements.
 #[derive(Default)]
 pub struct Inspector {
@@ -199,6 +199,7 @@ pub struct ScrollbarHeight(f32);
 #[derive(Resource, Deref)]
 pub struct SelectedInspector(Entity);
 
+#[allow(clippy::too_many_arguments)]
 fn search_input_shared_properties(
     hovered: Mutable<bool>,
     focused: Mutable<bool>,
@@ -238,7 +239,7 @@ fn search_input_shared_properties(
                         if let Ok(mut cosmic_editor) = cosmic_editors.get_mut(event.entity()) {
                             let current_cursor = cosmic_editor.cursor();
                             if let Some(len) = cosmic_editor.with_buffer(|buffer| {
-                                buffer.lines.get(0).map(|line| line.text().len())
+                                buffer.lines.first().map(|line| line.text().len())
                             }) {
                                 if len > 0 {
                                     cosmic_editor.action(&mut font_system.0, Action::Motion(Motion::BufferEnd));
@@ -291,12 +292,9 @@ pub fn inspector_column(
     childrens: &Query<&Children>,
     inspector_columns: &Query<&InspectorColumn>,
 ) -> Option<Entity> {
-    for child in childrens.iter_descendants(entity) {
-        if inspector_columns.contains(child) {
-            return Some(child);
-        }
-    }
-    None
+    childrens
+        .iter_descendants(entity)
+        .find(|&child| inspector_columns.contains(child))
 }
 
 const DOUBLE_CLICK_TIMER: f32 = 0.5;
@@ -482,6 +480,7 @@ fn sync_aalo_text_position(
 #[derive(Component)]
 pub struct WaitUntilNonZeroTransform;
 
+#[allow(clippy::type_complexity)]
 fn wait_until_non_zero_transform(
     data: Query<
         (Entity, &GlobalTransform),
@@ -553,6 +552,7 @@ fn iter_target_root(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn inspection_target_root_selector(
     target_root: Mutable<InspectionTargetRoot>,
     target_root_focused: Mutable<bool>,
@@ -748,8 +748,8 @@ impl ElementWrapper for Inspector {
                                 if search.is_empty() {
                                     unfilter_entities();
                                 } else {
-                                    let ref mut matcher = Matcher::new(Config::DEFAULT);
-                                    let atom = Pattern::new(&search, CaseMatching::Smart, Normalization::Smart, nucleo_matcher::pattern::AtomKind::Fuzzy);
+                                    let matcher = &mut Matcher::new(Config::DEFAULT);
+                                    let atom = Pattern::new(search, CaseMatching::Smart, Normalization::Smart, nucleo_matcher::pattern::AtomKind::Fuzzy);
                                     for (_, EntityData { name: name_option, filtered, .. }) in entities.lock_ref().iter() {
                                         filtered.set_neq(
                                             if let Some(name) = &*name_option.lock_ref() {
@@ -767,8 +767,8 @@ impl ElementWrapper for Inspector {
                                 if search.is_empty() {
                                     unfilter_resources();
                                 } else {
-                                    let ref mut matcher = Matcher::new(Config::DEFAULT);
-                                    let atom = Pattern::new(&search, CaseMatching::Smart, Normalization::Smart, nucleo_matcher::pattern::AtomKind::Fuzzy);
+                                    let matcher = &mut Matcher::new(Config::DEFAULT);
+                                    let atom = Pattern::new(search, CaseMatching::Smart, Normalization::Smart, nucleo_matcher::pattern::AtomKind::Fuzzy);
                                     for (_, FieldData { name, filtered, .. }) in resources.lock_ref().iter() {
                                         filtered.set_neq(
                                             atom.score(nucleo_matcher::Utf32String::from(name.as_str()).slice(..), matcher).is_none()
@@ -782,8 +782,8 @@ impl ElementWrapper for Inspector {
                                 if search.is_empty() {
                                     unfilter_assets();
                                 } else {
-                                    let ref mut matcher = Matcher::new(Config::DEFAULT);
-                                    let atom = Pattern::new(&search, CaseMatching::Smart, Normalization::Smart, nucleo_matcher::pattern::AtomKind::Fuzzy);
+                                    let matcher = &mut Matcher::new(Config::DEFAULT);
+                                    let atom = Pattern::new(search, CaseMatching::Smart, Normalization::Smart, nucleo_matcher::pattern::AtomKind::Fuzzy);
                                     for (_, AssetData { name, filtered, .. }) in assets.lock_ref().iter() {
                                         filtered.set_neq(
                                             atom.score(nucleo_matcher::Utf32String::from(*name).slice(..), matcher).is_none()
@@ -1011,7 +1011,7 @@ impl ElementWrapper for Inspector {
                 if let Some(inspector_column) = inspector_column(event.entity(), &childrens, &inspector_columns) {
                     if let Ok(children) = childrens.get(inspector_column) {
                         // skip last child, which is a scrolling spacer
-                        commands.trigger_targets(CheckInspectionTargets, children[..children.len() - 1].iter().copied().collect::<Vec<_>>());
+                        commands.trigger_targets(CheckInspectionTargets, children[..children.len() - 1].to_vec());
                     }
                 }
             })
@@ -1083,13 +1083,13 @@ impl ElementWrapper for Inspector {
                 raw_el
                 .insert(PickingBehavior::default())
                 .apply(manage_dragging_component)
-                .on_event_with_system_stop_propagation::<Pointer<DragStart>, _>(|In((entity, drag_start)): In<(Entity, Pointer<DragStart>)>, mut commands: Commands| {
+                .on_event_with_system_stop_propagation::<Pointer<DragStart>, _>(|In((_, drag_start)): In<(Entity, Pointer<DragStart>)>, mut commands: Commands| {
                     if matches!(drag_start.button, PointerButton::Primary) {
                         commands.insert_resource(CursorOnHoverDisabled);
                         commands.insert_resource(UpdateHoverStatesDisabled);
                     }
                 })
-                .on_event_with_system_stop_propagation::<Pointer<DragEnd>, _>(|In((entity, drag_end)): In<(Entity, Pointer<DragEnd>)>, mut commands: Commands| {
+                .on_event_with_system_stop_propagation::<Pointer<DragEnd>, _>(|In((_, drag_end)): In<(Entity, Pointer<DragEnd>)>, mut commands: Commands| {
                     if matches!(drag_end.button, PointerButton::Primary) {
                         commands.remove_resource::<CursorOnHoverDisabled>();
                         commands.remove_resource::<UpdateHoverStatesDisabled>();
@@ -1136,31 +1136,29 @@ impl ElementWrapper for Inspector {
                                     }
                                 }
                             }
-                        } else {
-                            if let Some(&child) = i_born(entity, &childrens, 0) {
-                                if let Some((child_computed_node, resize_parent_computed_node)) = computed_nodes.get(child).ok().zip(computed_nodes.get(resize_parent).ok()) {
-                                    let inspector_column_option = 'block: {
-                                        for child in childrens.iter_descendants(resize_parent) {
-                                            if inspector_columns.contains(child) {
-                                                break 'block Some(child);
-                                            }
+                        } else if let Some(&child) = i_born(entity, &childrens, 0) {
+                            if let Some((child_computed_node, resize_parent_computed_node)) = computed_nodes.get(child).ok().zip(computed_nodes.get(resize_parent).ok()) {
+                                let inspector_column_option = 'block: {
+                                    for child in childrens.iter_descendants(resize_parent) {
+                                        if inspector_columns.contains(child) {
+                                            break 'block Some(child);
                                         }
-                                        None
-                                    };
-                                    if let Some(scroll_position) = inspector_column_option.and_then(|inspector_column| scroll_positions.get(inspector_column).ok()) {
-                                        let Vec2 { x, y } = resize_parent_computed_node.size();
-                                        // TODO: replace with inspector ancestor once https://github.com/bevyengine/bevy/issues/14773
-                                        if let Some(mut entity) = commands.get_entity(resize_parent) {
-                                            entity.try_insert(PreviousScrollPosition(scroll_position.offset_y));
-                                        }
-                                        *previous_size = Some((x, y));
-                                        if let Ok(mut node) = nodes.get_mut(resize_parent) {
-                                            let Vec2 { x, y } = child_computed_node.size();
-                                            // TODO: get this from the root inspector itself after https://github.com/bevyengine/bevy/issues/14773
-                                            let border_width = border_width.get() * 2.;
-                                            node.width = Val::Px(x + border_width);
-                                            node.height = Val::Px(y + border_width);
-                                        }
+                                    }
+                                    None
+                                };
+                                if let Some(scroll_position) = inspector_column_option.and_then(|inspector_column| scroll_positions.get(inspector_column).ok()) {
+                                    let Vec2 { x, y } = resize_parent_computed_node.size();
+                                    // TODO: replace with inspector ancestor once https://github.com/bevyengine/bevy/issues/14773
+                                    if let Some(mut entity) = commands.get_entity(resize_parent) {
+                                        entity.try_insert(PreviousScrollPosition(scroll_position.offset_y));
+                                    }
+                                    *previous_size = Some((x, y));
+                                    if let Ok(mut node) = nodes.get_mut(resize_parent) {
+                                        let Vec2 { x, y } = child_computed_node.size();
+                                        // TODO: get this from the root inspector itself after https://github.com/bevyengine/bevy/issues/14773
+                                        let border_width = border_width.get() * 2.;
+                                        node.width = Val::Px(x + border_width);
+                                        node.height = Val::Px(y + border_width);
                                     }
                                 }
                             }
@@ -1216,11 +1214,7 @@ impl ElementWrapper for Inspector {
                                                     map_ref! {
                                                         let &asset_id = asset_id.signal(),
                                                         let &font_size = font_size.signal() => {
-                                                            if let Some(asset_id) = asset_id {
-                                                                Some((asset_id, font_size))
-                                                            } else {
-                                                                None
-                                                            }
+                                                            asset_id.map(|asset_id| (asset_id, font_size))
                                                         }
                                                     },
                                                     |In((_, asset_id_font_size_option)), mut materials: ResMut<Assets<LightRaysMaterial>>| {
@@ -2175,6 +2169,7 @@ pub struct EntityRoot {
 #[derive(Component, Default)]
 struct SyncAssetHandlesOnce;
 
+#[allow(dead_code)]
 #[derive(Component)]
 #[require(SyncAssetHandlesOnce)]
 pub struct AssetRoot {
@@ -2221,6 +2216,7 @@ fn lax_type_path_match(left: &str, right: &str) -> bool {
         || Some(left.to_lowercase().as_str()) == right.to_lowercase().split("::").last()
 }
 
+#[allow(dead_code)]
 impl MultiFieldElement {
     impl_syncers! {
         font_size: f32,
@@ -2585,45 +2581,43 @@ impl ElementWrapper for MultiFieldElement {
                 for parent in parents.iter_ancestors(ui_entity) {
                     if let Ok(target) = inspection_targets.get(parent) {
                         if matches!(target.root, InspectionTargetRoot::Entity | InspectionTargetRoot::Asset) {
-                            if let Some(target) = &target.target {
-                                if let InspectionTargetInner::Multi(target) = target {
-                                    let target_string = target.name.to_lowercase();
-                                    let matches_ = match &data {
-                                        MultiFieldData::Entity { id: entity, data: EntityData { name, .. } } => {
-                                            target_string == entity.to_string() || Some(target_string) == name.get_cloned().map(|name| name.to_lowercase())
-                                        },
-                                        MultiFieldData::Asset { data: AssetData { name, .. }, .. } => {
-                                            lax_type_path_match(&target_string, name)
-                                        }
-                                    };
-                                    if matches_ {
-                                        for ancestor in parents.iter_ancestors(ui_entity) {
-                                            if let Some(mut entity) = commands.get_entity(ancestor) {
-                                                entity.remove::<WaitForBirth>();
-                                            }
-                                        }
-                                        if let Some(mut entity) = commands.get_entity(ui_entity) {
-                                            let mut pending = VecDeque::new();
-                                            if let Some(InspectionTargetField { field, path }) = &target.field {
-                                                pending.push_back(ProgressPart::Field(field.clone()));
-                                                if let Some(path) = &path {
-                                                    for OffsetAccess { access, .. } in &path.0 {
-                                                        pending.push_back(ProgressPart::Access(access.clone()));
-                                                    }
-                                                }
-                                            }
-                                            entity.try_insert(InspectionTargetProgress { pending });
-                                            entity.try_insert(WaitForBirth { ceiling: None });
-                                            // TODO: use relations to safely get the entity's component children
-                                            if let Some(&child) = i_born(ui_entity, &childrens, 1) {
-                                                if let Ok(children) = childrens.get(child) {
-                                                    commands.trigger_targets(CheckInspectionTargets, children.iter().copied().collect::<Vec<_>>());
-                                                }
-                                            }
-                                        }
-                                        expanded.set_neq(true);
-                                        return
+                            if let Some(InspectionTargetInner::Multi(target)) = &target.target {
+                                let target_string = target.name.to_lowercase();
+                                let matches_ = match &data {
+                                    MultiFieldData::Entity { id: entity, data: EntityData { name, .. } } => {
+                                        target_string == entity.to_string() || Some(target_string) == name.get_cloned().map(|name| name.to_lowercase())
+                                    },
+                                    MultiFieldData::Asset { data: AssetData { name, .. }, .. } => {
+                                        lax_type_path_match(&target_string, name)
                                     }
+                                };
+                                if matches_ {
+                                    for ancestor in parents.iter_ancestors(ui_entity) {
+                                        if let Some(mut entity) = commands.get_entity(ancestor) {
+                                            entity.remove::<WaitForBirth>();
+                                        }
+                                    }
+                                    if let Some(mut entity) = commands.get_entity(ui_entity) {
+                                        let mut pending = VecDeque::new();
+                                        if let Some(InspectionTargetField { field, path }) = &target.field {
+                                            pending.push_back(ProgressPart::Field(field.clone()));
+                                            if let Some(path) = &path {
+                                                for OffsetAccess { access, .. } in &path.0 {
+                                                    pending.push_back(ProgressPart::Access(access.clone()));
+                                                }
+                                            }
+                                        }
+                                        entity.try_insert(InspectionTargetProgress { pending });
+                                        entity.try_insert(WaitForBirth { ceiling: None });
+                                        // TODO: use relations to safely get the entity's component children
+                                        if let Some(&child) = i_born(ui_entity, &childrens, 1) {
+                                            if let Ok(children) = childrens.get(child) {
+                                                commands.trigger_targets(CheckInspectionTargets, children.iter().copied().collect::<Vec<_>>());
+                                            }
+                                        }
+                                    }
+                                    expanded.set_neq(true);
+                                    return
                                 }
                             }
                         }
@@ -2908,6 +2902,7 @@ fn populate_enum_with_variant(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn field_header(
     name: String,
     field_type: Option<FieldType>,
@@ -2963,6 +2958,7 @@ fn field_header(
 #[derive(Event)]
 struct CheckInspectionTargets;
 
+#[allow(clippy::too_many_arguments)]
 fn object_type_header_with_count(
     root: InspectionTargetRoot,
     hovered: Mutable<bool>,
@@ -3135,6 +3131,7 @@ impl From<FieldElementInput> for AccessoryTarget {
     }
 }
 
+#[allow(dead_code)]
 impl FieldElement {
     fn new(
         input: FieldElementInput,
@@ -3197,18 +3194,16 @@ impl FieldElement {
                         let mut pending_option = None;
                         if let Ok(target) = inspection_targets.get(parent) {
                             if matches!(target.root, InspectionTargetRoot::Resource) {
-                                if let Some(target) = &target.target {
-                                    if let InspectionTargetInner::Solo(target) = target {
-                                        if let FieldType::Field(field) = &field_type {
-                                            if lax_type_path_match(&target.field, field) {
-                                                let mut pending = VecDeque::new();
-                                                if let Some(path) = &target.path {
-                                                    for OffsetAccess { access, .. } in &path.0 {
-                                                        pending.push_back(ProgressPart::Access(access.clone()));
-                                                    }
+                                if let Some(InspectionTargetInner::Solo(target)) = &target.target {
+                                    if let FieldType::Field(field) = &field_type {
+                                        if lax_type_path_match(&target.field, field) {
+                                            let mut pending = VecDeque::new();
+                                            if let Some(path) = &target.path {
+                                                for OffsetAccess { access, .. } in &path.0 {
+                                                    pending.push_back(ProgressPart::Access(access.clone()));
                                                 }
-                                                pending_option = Some(pending);
                                             }
+                                            pending_option = Some(pending);
                                         }
                                     }
                                 }
@@ -3218,7 +3213,7 @@ impl FieldElement {
                             if let Some(first) = pending.front() {
                                 if match (first, field_type.clone()) {
                                     (ProgressPart::Field(target_field), FieldType::Field(field)) => {
-                                        lax_type_path_match(&target_field, &field)
+                                        lax_type_path_match(target_field, &field)
                                     },
                                     (ProgressPart::Access(target_access), FieldType::Access(access)) => {
                                         target_access == &access
@@ -3428,10 +3423,8 @@ impl FieldElement {
                                     if *lock != data {
                                         *lock = data;
                                     }
-                                } else {
-                                    if *lock == data {
-                                        *lock = None;
-                                    }
+                                } else if *lock == data {
+                                    *lock = None;
                                 }
                             }
                         }
@@ -3466,20 +3459,18 @@ impl FieldElement {
                             mut maybe_scroll_to_header_root: MaybeScrollToHeaderRoot,
                             parents: Query<&Parent>
                         | {
-                            if matches!(viewability.get(), Viewability::Viewable) {
-                                if matches!(click.button, PointerButton::Primary) {
-                                    let mut i = -1;  // don't count current header
-                                    for ancestor in parents.iter_ancestors(entity) {
-                                        if headers.contains(ancestor) {
-                                            i += 1;
-                                        }
+                            if matches!(viewability.get(), Viewability::Viewable) && matches!(click.button, PointerButton::Primary) {
+                                let mut i = -1;  // don't count current header
+                                for ancestor in parents.iter_ancestors(entity) {
+                                    if headers.contains(ancestor) {
+                                        i += 1;
                                     }
-                                    if let Some(rect) = relative_rect.get(entity) {
-                                        let partially_under = rect.min.y < rect.size().y * i as f32;
-                                        if !maybe_scroll_to_header_root.scrolled(entity, !partially_under) || partially_under && expanded.get().not()
-                                        {
-                                            flip(&expanded)
-                                        }
+                                }
+                                if let Some(rect) = relative_rect.get(entity) {
+                                    let partially_under = rect.min.y < rect.size().y * i as f32;
+                                    if !maybe_scroll_to_header_root.scrolled(entity, !partially_under) || partially_under && expanded.get().not()
+                                    {
+                                        flip(&expanded)
                                     }
                                 }
                             }
@@ -3515,7 +3506,7 @@ impl FieldElement {
                     .apply(left_bordered_style(border_width.signal(), map_bool_signal(hovered.signal(), tertiary_background_color.clone(), border_color.clone()), padding.signal()));
                     let mut custom_field_option = None;
                     if let FieldType::Field(field_) = &field_type {
-                        custom_field_option = frontend(&field_);
+                        custom_field_option = frontend(field_);
                     }
                     if let Some(field) = custom_field_option {
                         el = el.item(
@@ -3632,29 +3623,26 @@ impl FieldElement {
                                             raw_el = raw_el.with_entity(move |mut entity| {
                                                 let handler = entity.world_scope(|world| {
                                                     register_system(world, move |In(reflect): In<Box<dyn PartialReflect>>| {
-                                                        match reflect.reflect_ref() {
-                                                            ReflectRef::List(list) => {
-                                                                let cur = list.len();
-                                                                let len = items.lock_ref().len();
-                                                                let mut lock = items.lock_mut();
-                                                                if cur > len {
-                                                                    for i in len..cur {
-                                                                        if let Some(access) = match reflect_kind {
-                                                                            ReflectKind::List => Some(Access::ListIndex(i)),
-                                                                            // TODO
-                                                                            // ReflectKind::Map => Some(...),
-                                                                            _ => None,
-                                                                        } {
-                                                                            lock.push_cloned(AccessFieldData::new(access));
-                                                                        }
-                                                                    }
-                                                                } else if cur < len {
-                                                                    for _ in 0..(len - cur) {
-                                                                        lock.pop();
+                                                        if let ReflectRef::List(list) = reflect.reflect_ref() {
+                                                            let cur = list.len();
+                                                            let len = items.lock_ref().len();
+                                                            let mut lock = items.lock_mut();
+                                                            if cur > len {
+                                                                for i in len..cur {
+                                                                    if let Some(access) = match reflect_kind {
+                                                                        ReflectKind::List => Some(Access::ListIndex(i)),
+                                                                        // TODO
+                                                                        // ReflectKind::Map => Some(...),
+                                                                        _ => None,
+                                                                    } {
+                                                                        lock.push_cloned(AccessFieldData::new(access));
                                                                     }
                                                                 }
+                                                            } else if cur < len {
+                                                                for _ in 0..(len - cur) {
+                                                                    lock.pop();
+                                                                }
                                                             }
-                                                            _ => ()
                                                         }
                                                     })
                                                 });
@@ -3736,6 +3724,7 @@ impl FieldElement {
     }
 }
 
+#[allow(clippy::type_complexity)]
 #[rustfmt::skip]
 static FRONTENDS: Lazy<
     RwLock<HashMap<&'static str, Box<dyn Fn() -> AlignabilityFacade + Send + Sync + 'static>>>,
@@ -3787,6 +3776,7 @@ static FRONTENDS: Lazy<
     .apply(RwLock::new)
 });
 
+#[allow(clippy::type_complexity)]
 static CUSTOM_FRONTENDS: Lazy<
     RwLock<HashMap<&'static str, Box<dyn Fn() -> AlignabilityFacade + Send + Sync + 'static>>>,
 > = Lazy::new(default);
@@ -3945,10 +3935,12 @@ impl<'w, 's> FieldPath<'w, 's> {
             .into_iter()
             .chain(self.parents.iter_ancestors(entity))
         {
-            if let Ok(Accessory { access_option, .. }) = self.accessories.get(ancestor) {
-                if let Some(access) = access_option {
-                    path.push(access.clone());
-                }
+            if let Ok(Accessory {
+                access_option: Some(access),
+                ..
+            }) = self.accessories.get(ancestor)
+            {
+                path.push(access.clone());
             }
             if self.entity_roots.contains(ancestor) {
                 break;
@@ -4120,6 +4112,7 @@ pub fn entity_field() -> impl Element {
         }))
 }
 
+#[allow(clippy::type_complexity)]
 #[derive(Default)]
 pub struct TextInputField<T, F> {
     el: TextInput,
@@ -4252,7 +4245,7 @@ where
     let border_color = GLOBAL_BORDER_COLOR.clone();
     let padding = GLOBAL_PADDING.clone();
     text_input_option
-        .unwrap_or_else(TextInput::new)
+        .unwrap_or_default()
         // TODO: height_signal alone is not working for some reason ??
         .height(Val::Px(
             font_size.get() + border_width.get() * 4. + padding.get() + 3.,
@@ -4339,12 +4332,10 @@ impl<
                 let &highlight = highlight.signal() => {
                     if text_color_set {
                         text_color_option.signal().apply(boxed_sync)
+                    } else if focused || highlight {
+                        highlighted_color.signal().map(Some).apply(boxed_sync)
                     } else {
-                        if focused || highlight {
-                            highlighted_color.signal().map(Some).apply(boxed_sync)
-                        } else {
-                            unhighlighted_color.signal().map(Some).apply(boxed_sync)
-                        }
+                        unhighlighted_color.signal().map(Some).apply(boxed_sync)
                     }
                 }
             })
@@ -4362,14 +4353,12 @@ impl<
                 let &highlight = highlight.signal() => {
                     if border_color_set {
                         border_color_option.signal().apply(boxed_sync)
+                    } else if focused || highlight {
+                        highlighted_color.signal().map(Some).apply(boxed_sync)
+                    } else if hovered {
+                        unhighlighted_color.signal().map(Some).apply(boxed_sync)
                     } else {
-                        if focused || highlight {
-                            highlighted_color.signal().map(Some).apply(boxed_sync)
-                        } else if hovered {
-                            unhighlighted_color.signal().map(Some).apply(boxed_sync)
-                        } else {
-                            border_color.signal().map(Some).apply(boxed_sync)
-                        }
+                        border_color.signal().map(Some).apply(boxed_sync)
                     }
                 }
             })
@@ -4450,6 +4439,7 @@ fn numeric_field_width(text_signal: impl Signal<Item = String>) -> impl Signal<I
     })
 }
 
+#[allow(clippy::type_complexity)]
 fn basic_numeric_field_width<T: NumericFieldable>(
     el: TextInputField<T::T, fn(T::T) -> String>,
 ) -> TextInputField<T::T, fn(T::T) -> String> {
@@ -4458,6 +4448,7 @@ fn basic_numeric_field_width<T: NumericFieldable>(
     }))
 }
 
+#[allow(clippy::type_complexity)]
 fn numeric_field_width_reporter<T: NumericFieldable>(
     width: Mutable<f32>,
 ) -> impl FnOnce(TextInputField<T::T, fn(T::T) -> String>) -> TextInputField<T::T, fn(T::T) -> String>
@@ -4477,6 +4468,7 @@ fn basic_numeric_formatter<T: NumericFieldable>() -> fn(T::T) -> String {
 #[derive(Component)]
 struct DragInitial<T: NumericFieldable>(T::T);
 
+#[allow(clippy::type_complexity)]
 pub fn numeric_field<T: NumericFieldable>() -> TextInputField<T::T, fn(T::T) -> String>
 where
     <<T as NumericFieldable>::T as FromStr>::Err: Debug,
@@ -4634,7 +4626,6 @@ where
                 Ok(new) => {
                     parse_failed.set(None);
                     field.update(ui_entity, new.clone_value());
-                    return;
                 }
                 Err(e) => {
                     parse_failed.set(Some(format!("{:?}", e)));
@@ -4765,6 +4756,7 @@ pub fn sync_entities_helper(
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn sync_orphan_entities(
     query: Query<
         Entity,
@@ -4780,12 +4772,13 @@ fn sync_orphan_entities(
 ) {
     sync_entities_helper(
         &ORPHAN_ENTITIES,
-        query.into_iter(),
+        &query,
         &debug_names,
         &mut field_path_cache,
     )
 }
 
+#[allow(clippy::type_complexity)]
 fn sync_entities(
     query: Query<
         Entity,
@@ -4799,14 +4792,10 @@ fn sync_entities(
     debug_names: Query<NameOrEntity>,
     mut field_path_cache: ResMut<FieldPathCache>,
 ) {
-    sync_entities_helper(
-        &ENTITIES,
-        query.into_iter(),
-        &debug_names,
-        &mut field_path_cache,
-    )
+    sync_entities_helper(&ENTITIES, &query, &debug_names, &mut field_path_cache)
 }
 
+#[allow(clippy::type_complexity)]
 fn sync_components(
     mut entity_roots: Query<
         (Entity, &mut EntityRoot),
@@ -4853,6 +4842,8 @@ pub struct Visible;
 
 const HEADER_HEIGHT_STABILITY_COUNT: usize = 3;
 
+#[allow(clippy::type_complexity)]
+#[allow(clippy::too_many_arguments)]
 fn sync_visibility(
     field_listeners: Query<
         Entity,
@@ -4928,6 +4919,7 @@ struct SyncUiOnce;
 #[derive(Component, Default)]
 struct SyncComponentsOnce;
 
+#[allow(clippy::type_complexity)]
 fn sync_ui(
     field_listeners: Query<
         (Entity, &Accessory, &FieldListener),
@@ -5024,9 +5016,7 @@ impl From<(InspectionTargetRoot, &str, &str, &str)> for InspectionTarget {
         if matches!(root, InspectionTargetRoot::Resource) {
             panic!(
                 "`Resource` targets cannot be specified with a triple, try ({}, {}, {}) instead",
-                root.to_string(),
-                field,
-                path
+                root, multi_field, field
             );
         }
         let target = if !multi_field.is_empty() {
@@ -5192,12 +5182,9 @@ pub struct InspectorColumnAncestor<'w, 's> {
 
 impl<'w, 's> InspectorColumnAncestor<'w, 's> {
     pub fn get(&self, entity: Entity) -> Option<Entity> {
-        for ancestor in self.parents.iter_ancestors(entity) {
-            if self.entity_inspector_columns.contains(ancestor) {
-                return Some(ancestor);
-            }
-        }
-        None
+        self.parents
+            .iter_ancestors(entity)
+            .find(|&ancestor| self.entity_inspector_columns.contains(ancestor))
     }
 }
 
@@ -5243,7 +5230,7 @@ impl<'w, 's> Top<'w, 's> {
                 }
             }
         }
-        return None;
+        None
     }
 }
 
@@ -5438,16 +5425,14 @@ impl Ord for Viewability {
     fn cmp(&self, other: &Self) -> Ordering {
         if matches!(self, Viewability::NotInRegistry) {
             if matches!(other, Viewability::NotInRegistry) {
-                return Ordering::Equal;
+                Ordering::Equal
             } else {
-                return Ordering::Less;
+                Ordering::Less
             }
+        } else if !matches!(other, Viewability::NotInRegistry) {
+            Ordering::Equal
         } else {
-            if !matches!(other, Viewability::NotInRegistry) {
-                return Ordering::Equal;
-            } else {
-                return Ordering::Greater;
-            }
+            Ordering::Greater
         }
     }
 }
@@ -5715,7 +5700,7 @@ pub fn resize_border<E: Element + Sizeable>(
             ),
         };
         let mut el = wrapper_stack_option
-            .unwrap_or_else(|| Stack::<Node>::new())
+            .unwrap_or_default()
             .update_raw_el(|raw_el| raw_el.insert(ResizeParent))
             .apply(border_radius_style(BoxCorner::ALL, radius.signal()))
             .layer({
@@ -5803,7 +5788,7 @@ pub fn resize_border<E: Element + Sizeable>(
             .map(|width| width + width * RESIZE_BORDER_SLACK_PERCENT / 100. * 2.)
             .broadcast();
         let hovereds = MutableVec::from(edge_hovereds);
-        let hovered_iter = hovereds.lock_ref().into_iter().cloned().collect::<Vec<_>>();
+        let hovered_iter = hovereds.lock_ref().iter().cloned().collect::<Vec<_>>();
         for (edge, hovered) in BoxEdge::iter().zip(hovered_iter) {
             el = el.layer({
                 let mut el = El::<Node>::new()
@@ -6198,9 +6183,16 @@ fn update_light_rays_material(
     }
 }
 
-pub const AALO_TEXT_CAMERA_ORDER: isize = bevy_dev_tools::ui_debug_overlay::LAYOUT_DEBUG_CAMERA_ORDER - 1;
+pub const AALO_TEXT_CAMERA_ORDER: isize =
+    bevy_dev_tools::ui_debug_overlay::LAYOUT_DEBUG_CAMERA_ORDER - 1;
 pub static AALO_TEXT_CAMERA_RENDER_LAYERS: Lazy<RenderLayers> = Lazy::new(|| {
-    RenderLayers::layer(bevy_dev_tools::ui_debug_overlay::LAYOUT_DEBUG_LAYERS.iter().next().unwrap() - 1)
+    RenderLayers::layer(
+        bevy_dev_tools::ui_debug_overlay::LAYOUT_DEBUG_LAYERS
+            .iter()
+            .next()
+            .unwrap()
+            - 1,
+    )
 });
 
 #[derive(Component, Default)]
@@ -6292,6 +6284,7 @@ struct AssetHandlesAdded(Vec<UntypedAssetId>);
 #[derive(Event)]
 struct AssetHandlesRemoved(Vec<UntypedAssetId>);
 
+#[allow(clippy::type_complexity)]
 fn sync_asset_handles(
     mut asset_roots: Query<
         (Entity, &mut AssetRoot),

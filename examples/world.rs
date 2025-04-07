@@ -12,6 +12,7 @@ fn main() {
         .run();
 }
 
+#[allow(clippy::eq_op)]
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,

@@ -2627,6 +2627,8 @@ dependencies = [
 [[package]]
 name = "haalka"
 version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad3c275f81a8f834decfa4b94d005c53fca9596f258356129e625cca0660f167"
 dependencies = [
  "apply",
  "async-io",
@@ -2664,6 +2666,8 @@ dependencies = [
 [[package]]
 name = "haalka_futures_signals_ext"
 version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43ea54acdcc30651005b6ae7e4e2c8754a48282573c48127ef696ceca5cd47f5"
 dependencies = [
  "futures-signals",
  "haalka_futures_util_ext",
@@ -2673,6 +2677,8 @@ dependencies = [
 [[package]]
 name = "haalka_futures_util_ext"
 version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7571f6bbb0afdb1095e6e4020947a1c81ab5037089798c40021300b3951c9577"
 dependencies = [
  "futures-util",
  "pin-project",

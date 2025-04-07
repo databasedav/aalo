@@ -8,7 +8,6 @@ in bengali, aalo means "light" (i.e. photons), not to be confused with haalka !
 
 ## setup
 
-
 ```toml
 [dependencies]
 aalo = { version = "0.0", optional = true }
@@ -36,7 +35,7 @@ opt-level = 3
 
 use `register_frontend`, passing in a fully qualified type path and a function that returns an `impl Bundle`, e.g. `Node`, whose `Entity` also has a `FieldListener` `Component`; `FieldListener` is just a wrapper around a `SystemId<In<Box<dyn PartialReflect>>>`, which will be forwarded the corresponding field's value every frame it is visible in the inspector
 
-```rust
+```rust no_run
 fn init_custom_bool_frontend(mut world: DeferredWorld, entity: Entity, _: ComponentId) {
     let mut commands = world.commands();
     let text = commands.spawn_empty().id();
@@ -103,6 +102,20 @@ see [custom frontend example](https://github.com/databasedav/aalo/blob/main/exam
 **`left arrow/right arrow`**: iterate left/right through search/targeting roots
 
 **`esc`**: close search/targeting
+
+## examples
+
+### on the web
+
+All examples are compiled to wasm for both webgl2 and webgpu (check [compatibility](<https://github.com/gpuweb/gpuweb/wiki/Implementation-Status#implementation-status>)) and deployed to github pages.
+
+- [**`world`**](https://github.com/databasedav/aalo/blob/main/examples/world.rs) [webgl2](https://databasedav.github.io/aalo/examples/webgl2/world/) [webgpu](https://databasedav.github.io/aalo/examples/webgpu/world/)
+
+    minimal world inspector
+
+- [**`custom`**](https://github.com/databasedav/aalo/blob/main/examples/custom.rs) [webgl2](https://databasedav.github.io/aalo/examples/webgl2/custom/) [webgpu](https://databasedav.github.io/aalo/examples/webgpu/custom/)
+
+    custom frontend for a field and a component
 
 ## Bevy compatibility
 

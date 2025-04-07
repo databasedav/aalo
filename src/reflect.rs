@@ -49,11 +49,7 @@ pub fn reflect_component_mut<'w>(
                 .get_info(component)
                 .and_then(|info| info.type_id())
         })
-        .zip(entity.world_scope(|world| {
-            world
-                .get_resource::<AppTypeRegistry>()
-                .map(|type_registry| type_registry.clone())
-        }))
+        .zip(entity.world_scope(|world| world.get_resource::<AppTypeRegistry>().cloned()))
     {
         if let Some((component_ptr, type_registration)) = entity
             .get_mut_by_id(component)

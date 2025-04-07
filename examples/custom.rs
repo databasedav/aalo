@@ -33,9 +33,7 @@ fn init_custom_bool_frontend(mut world: DeferredWorld, entity: Entity, _: Compon
                     .map(|CustomBoolComponent(cur)| cur)
             });
             if let Some(cur) = cur_option {
-                commands
-                    .entity(text)
-                    .insert(Text(cur.to_string()));
+                commands.entity(text).insert(Text(cur.to_string()));
             }
         },
     );

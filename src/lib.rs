@@ -1,10 +1,10 @@
 use bevy_app::prelude::*;
-use bevy_core_pipeline::{core_2d::Camera2d, core_3d::Camera3d};
+use bevy_core_pipeline::core_2d::Camera2d;
 use bevy_ecs::prelude::*;
 use bevy_picking::prelude::*;
+use bevy_render::prelude::*;
 use bevy_ui::prelude::*;
 use bevy_utils::prelude::*;
-use bevy_render::prelude::*;
 use haalka::prelude::*;
 use std::sync::{Arc, Mutex};
 
@@ -18,6 +18,7 @@ pub mod widgets;
 
 use inspector::*;
 
+#[allow(clippy::type_complexity)]
 struct WorldInspectorConfig {
     inspector_transformers:
         Mutex<Vec<Box<dyn FnOnce(Inspector) -> Inspector + Send + Sync + 'static>>>,
@@ -44,6 +45,7 @@ macro_rules! make_flags {
 
 make_flags!(World);
 
+#[derive(Default)]
 pub struct AaloPlugin<WorldFlag> {
     world_inspector_config: Option<WorldInspectorConfig>,
     flags: std::marker::PhantomData<WorldFlag>,
@@ -51,10 +53,7 @@ pub struct AaloPlugin<WorldFlag> {
 
 impl AaloPlugin<WorldFlagNotSet> {
     pub fn new() -> Self {
-        Self {
-            world_inspector_config: None,
-            flags: std::marker::PhantomData,
-        }
+        default()
     }
 }
 
@@ -110,6 +109,7 @@ impl<WorldFlag> AaloPlugin<WorldFlag> {
 }
 
 impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {
+    #[allow(clippy::type_complexity)]
     fn build(&self, app: &mut App) {
         app.add_plugins(inspector::plugin);
         if let Some(world_inspector_config) = &self.world_inspector_config {

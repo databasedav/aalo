@@ -5,11 +5,8 @@ use bevy_ecs::{
 use bevy_hierarchy::prelude::*;
 use bevy_math::prelude::*;
 use bevy_picking::prelude::*;
-use bevy_render::prelude::*;
 use bevy_ui::prelude::*;
 use haalka::prelude::*;
-
-use super::style::*;
 
 // TODO: move to haalka ?
 #[macro_export]
