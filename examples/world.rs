@@ -1,4 +1,4 @@
-//! basic world inspector, inspired by https://github.com/jakobhellermann/bevy-inspector-egui/blob/main/crates/bevy-inspector-egui/examples/quick/world_inspector.rs
+//! basic world inspector, inspired by <https://github.com/jakobhellermann/bevy-inspector-egui/blob/main/crates/bevy-inspector-egui/examples/quick/world_inspector.rs>
 
 mod utils;
 use utils::*;
