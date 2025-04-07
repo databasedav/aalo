@@ -31,7 +31,7 @@ jobs:
       run: just build_wasm_example ${{ inputs.example }}
     - if: ${{ inputs.api == 'webgpu' }}
       name: build example
-      run: just build_wasm_example ${{ inputs.example }} webgpu
+      run: just build_wasm_example ${{ inputs.example }} haalka/webgpu
     - name: upload dist
       uses: actions/upload-artifact@v4
       with:
