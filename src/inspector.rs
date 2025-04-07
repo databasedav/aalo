@@ -6370,8 +6370,7 @@ pub(super) fn plugin(app: &mut App) {
     embedded_asset!(app, "assets/light_rays.wgsl");
     app.add_plugins(Material2dPlugin::<LightRaysMaterial>::default())
         .add_plugins(Text3dPlugin {
-            load_system_fonts: true,
-            asynchronous_load: true,
+            load_font_embedded: vec![DEFAULT_FONT_DATA],
             ..default()
         })
         .add_systems(
