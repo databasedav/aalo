@@ -32,7 +32,7 @@ sign_tag tag:
   GIT_COMMITTER_DATE="$(git log -1 --format=%aD {{ tag }})" git tag {{ tag }} {{ tag }} -f -s && git push --tags --force
 
 # TODO: use an actual list https://github.com/casey/just/issues/2458
-exclude_examples := '"test"'
+exclude_examples := '"test", "utils"'
 
 list_examples:
   @cargo metadata --no-deps --format-version 1 | jq -c --argjson exclude '[{{ exclude_examples }}]' '[.packages[].targets[] | select(.kind[] == "example" and (.name as $name | $exclude | index($name) | not)) | .name]'
