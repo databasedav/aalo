@@ -29,7 +29,7 @@ bevy_reflect = "0.15"
 bevy_render = "0.15"
 bevy_sprite = "0.15"
 bevy_tasks = "0.15"
-bevy_text = "0.15"
+bevy_text = { version = "0.15", features = ["default_font"] }
 bevy_time = "0.15"
 bevy_transform = "0.15"
 bevy_ui = "0.15"
