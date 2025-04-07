@@ -2629,7 +2629,7 @@ dependencies = [
 [[package]]
 name = "haalka"
 version = "0.4.0"
-source = "git+https://github.com/databasedav/haalka.git?branch=more_aalo_prep#ed9e1b55e4e725c390d160ae9c00d9e4ad07b78b"
+source = "git+https://github.com/databasedav/haalka.git?branch=more_aalo_prep#6ef1f9e18b80fe22001441df05365a3f17add59b"
 dependencies = [
  "apply",
  "async-io",
@@ -2667,7 +2667,7 @@ dependencies = [
 [[package]]
 name = "haalka_futures_signals_ext"
 version = "0.0.2"
-source = "git+https://github.com/databasedav/haalka.git?branch=more_aalo_prep#ed9e1b55e4e725c390d160ae9c00d9e4ad07b78b"
+source = "git+https://github.com/databasedav/haalka.git?branch=more_aalo_prep#6ef1f9e18b80fe22001441df05365a3f17add59b"
 dependencies = [
  "futures-signals",
  "haalka_futures_util_ext",
@@ -2677,7 +2677,7 @@ dependencies = [
 [[package]]
 name = "haalka_futures_util_ext"
 version = "0.0.1"
-source = "git+https://github.com/databasedav/haalka.git?branch=more_aalo_prep#ed9e1b55e4e725c390d160ae9c00d9e4ad07b78b"
+source = "git+https://github.com/databasedav/haalka.git?branch=more_aalo_prep#6ef1f9e18b80fe22001441df05365a3f17add59b"
 dependencies = [
  "futures-util",
  "pin-project",
