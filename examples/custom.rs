@@ -1,4 +1,8 @@
 //! register custom frontends for any type
+
+mod utils;
+use utils::*;
+
 use aalo::prelude::*;
 use bevy::ecs::{component::ComponentId, world::DeferredWorld};
 use bevy::prelude::*;
@@ -7,7 +11,7 @@ fn main() {
     register_frontend("bool", custom_bool_frontend);
     register_frontend("custom::CustomBoolComponent", custom_bool_frontend);
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(example_window_plugin()))
         .add_plugins(AaloPlugin::new().world().with_inspector(|inspector| {
             inspector.jump_to(("entity", "custom bool field", "boolcomponent", ".0"))
         }))

@@ -1,10 +1,14 @@
 //! basic world inspector, inspired by https://github.com/jakobhellermann/bevy-inspector-egui/blob/main/crates/bevy-inspector-egui/examples/quick/world_inspector.rs
+
+mod utils;
+use utils::*;
+
 use aalo::prelude::*;
 use bevy::prelude::*;
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(example_window_plugin()))
         .add_plugins(AaloPlugin::new().world().with_inspector(|inspector| {
             inspector.jump_to(("entity", "my cube", "transform", ".translation"))
         }))

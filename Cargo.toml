@@ -43,6 +43,24 @@ strum = { version = "0.26", features = ["derive"] }
 num = "0.4"
 bevy_rich_text3d = { version = "0.2", default-features = false, features = ["2d"] }
 
+[features]
+deployed_wasm_example = []
+
 [dev-dependencies]
 bevy = { version = "0.15", features = ["bevy_dev_tools"] }
 
+[[example]]
+name = "custom"
+path = "examples/custom.rs"
+doc-scrape-examples = true
+
+[[example]]
+name = "world"
+path = "examples/world.rs"
+doc-scrape-examples = true
+
+[[example]]
+name = "utils"
+path = "examples/utils.rs"
+doc-scrape-examples = true
+crate-type = ["lib"]
