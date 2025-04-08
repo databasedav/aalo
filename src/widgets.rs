@@ -305,9 +305,7 @@ impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for 
             clone!((options, selected, blocked_tooltip) move || {
                 let option_handler_system = option_handler_system.get().copied();
                 Column::<Node>::new()
-                .global_z_index(GlobalZIndex(i32::MAX))
-                // .global_z_index(GlobalZIndex(z_order("dropdown")))
-                // .z_index(ZIndex(z_order("dropdown")))
+                .global_z_index(GlobalZIndex(z_order("dropdown")))
                 .apply(border_color_style(border_color.signal()))
                 .width(Val::Percent(100.))
                 .with_node(|mut node| node.position_type = PositionType::Absolute)

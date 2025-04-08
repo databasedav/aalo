@@ -6177,7 +6177,7 @@ impl LightRaysMaterial {
     fn new(text_entity: Entity) -> Self {
         Self {
             texture: Some(TextAtlas::DEFAULT_IMAGE.clone_weak()),
-            translation: Vec4::new(0., 0., 0., 0.),
+            translation: Vec4::ZERO,
             size: Vec4::new(DEFAULT_FONT_SIZE + 2., 0., 0., 0.),
             entity: text_entity,
         }

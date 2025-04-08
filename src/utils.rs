@@ -226,7 +226,7 @@ pub struct TooltipHolder(pub Mutable<Option<TooltipData>>);
 #[derive(SystemParam)]
 pub struct TooltipCache<'w, 's> {
     cache: Local<'s, Option<Mutable<Option<TooltipData>>>>,
-    pub(crate) inspector_ancestor: InspectorAncestor<'w, 's>,
+    inspector_ancestor: InspectorAncestor<'w, 's>,
     tooltips: Query<'w, 's, &'static TooltipHolder>,
 }
 
