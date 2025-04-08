@@ -11,7 +11,7 @@ use std::{
 };
 
 use bevy_app::prelude::*;
-use bevy_asset::{embedded_asset, prelude::*, ReflectAsset, UntypedAssetId};
+use bevy_asset::{prelude::*, ReflectAsset, UntypedAssetId};
 use bevy_color::{self, prelude::*};
 use bevy_core::prelude::*;
 use bevy_core_pipeline::prelude::*;
@@ -27,10 +27,7 @@ use bevy_ecs::{
 };
 use bevy_hierarchy::prelude::*;
 use bevy_image::Image;
-use bevy_input::{
-    mouse::{MouseScrollUnit, MouseWheel},
-    prelude::*,
-};
+use bevy_input::{mouse::MouseWheel, prelude::*};
 use bevy_log::prelude::*;
 use bevy_math::prelude::*;
 use bevy_picking::prelude::*;
@@ -52,7 +49,7 @@ use bevy_window::{PrimaryWindow, Window, WindowRef};
 use disqualified::ShortName;
 use haalka::{
     align::AlignabilityFacade,
-    mouse_wheel_scrollable::ScrollDisabled,
+    mouse_wheel_scrollable::{scroll_normalizer, ScrollDisabled},
     pointer_event_aware::UpdateHoverStatesDisabled,
     prelude::*,
     raw::{utils::remove_system_holder_on_remove, HaalkaObserver, HaalkaOneShotSystem},
@@ -832,6 +829,21 @@ impl ElementWrapper for Inspector {
         .update_raw_el(clone!((search_focused, show_search, first_target_focused, show_targeting, second_target_focused, third_target_focused, first_target, second_target, third_target, search_target_root, targeting_target_root, search_target_root_focused, targeting_target_root_focused, search) move |raw_el| {
             raw_el
             .hold_tasks([search_task])
+            .on_spawn_with_system(|
+                In(entity): In<Entity>,
+                default_ui_camera_option: Option<Single<Entity, With<IsDefaultUiCamera>>>,
+                camera_2ds: Query<Entity, With<Camera2d>>,
+                camera_3ds: Query<Entity, With<Camera3d>>,
+                parents: Query<&Parent>,
+                mut commands: Commands,
+            | {
+                let camera = default_ui_camera_option.as_deref().copied().or_else(|| camera_2ds.iter().next()).or_else(|| camera_3ds.iter().next()).unwrap_or_else(|| commands.spawn(Camera2d).id());
+                if let Some(root) = parents.iter_ancestors(entity).last() {
+                    if let Some(mut entity) = commands.get_entity(root) {
+                        entity.insert((UiRoot, TargetCamera(camera)));
+                    }
+                }
+            })
             .on_signal_with_system(
                 clone!((search, search_target_root, targeting_target_root) map_ref! {
                     let &show_search = show_search.signal(),
@@ -1111,6 +1123,7 @@ impl ElementWrapper for Inspector {
                         }
                     }
                 })
+                .with_entity(|mut entity| { entity.remove::<Dragging>(); })
                 .apply(trigger_double_click::<Dragging>)
                 .on_event_with_system::<DoubleClick, _>(clone!((collapsed, border_width) move |
                     In((entity, _)),
@@ -1220,7 +1233,7 @@ impl ElementWrapper for Inspector {
                                                     |In((_, asset_id_font_size_option)), mut materials: ResMut<Assets<LightRaysMaterial>>| {
                                                         if let Some((asset_id, font_size)) = asset_id_font_size_option {
                                                             if let Some(light_rays) = materials.get_mut(asset_id) {
-                                                                light_rays.size = font_size;
+                                                                light_rays.size.x = font_size;
                                                             }
                                                         }
                                                     }
@@ -1257,6 +1270,14 @@ impl ElementWrapper for Inspector {
                             .insert(InspectorColumn)
                             .component_signal::<ScrollbarHeight, _>(scrollbar_height_option.signal().map_some(ScrollbarHeight))
                             .observe(on_scroll_header_pinner)
+                            .observe(|event: Trigger<OnInsert, PinnedHeaders>, mut inspector_ancestor: InspectorAncestor, pinned_headers: Query<&PinnedHeaders>, mut commands: Commands| {
+                                let entity = event.entity();
+                                if let Some(inspector) = inspector_ancestor.get(entity) {
+                                    if let Some((mut entity, &PinnedHeaders(pinned_headers))) = commands.get_entity(inspector).zip(pinned_headers.get(entity).ok()) {
+                                        entity.insert(GlobalZIndex(z_order("inspector") - 1 - pinned_headers as i32 * 2));
+                                    }
+                                }
+                            })
                     }))
                     .apply(border_radius_style(BoxCorner::TOP, border_radius.signal()))
                     .apply(border_color_style(border_color.signal()))
@@ -2008,6 +2029,7 @@ impl ElementWrapper for Inspector {
         .cursor(CursorIcon::System(SystemCursorIcon::Default))
         .height_signal(height.signal().map(Val::Px))
         .width_signal(width.signal().map(Val::Px))
+        .global_z_index(GlobalZIndex(z_order("inspector")))
     }
 }
 
@@ -5391,15 +5413,12 @@ fn on_scroll_header_pinner(
     scroll_positions: Query<&ScrollPosition>,
     mut header_pinner: HeaderPinner,
 ) {
-    let &MouseWheel {
-        unit, y: mut dy, ..
-    } = event.event();
-    if matches!(unit, MouseScrollUnit::Line) {
-        dy *= DEFAULT_SCROLL_PIXELS; // TODO: this should be configurable
-    };
-    let inspector = event.entity();
-    if let Ok(ScrollPosition { offset_y, .. }) = scroll_positions.get(inspector) {
-        header_pinner.sync(inspector, (offset_y - dy).max(0.));
+    let &MouseWheel { unit, y, .. } = event.event();
+    // TODO: this should be configurable
+    let dy = scroll_normalizer(unit, y, DEFAULT_SCROLL_PIXELS);
+    let inspector_column = event.entity();
+    if let Ok(ScrollPosition { offset_y, .. }) = scroll_positions.get(inspector_column) {
+        header_pinner.sync(inspector_column, (offset_y - dy).max(0.));
     };
 }
 
@@ -5639,7 +5658,8 @@ impl<'w, 's> ResizeParentCache<'w, 's> {
 }
 
 pub fn manage_dragging_component(el: RawHaalkaEl) -> RawHaalkaEl {
-    el.on_event_with_system::<Pointer<DragStart>, _>(|In((entity, _)), mut commands: Commands| {
+    // TODO: this should be DragStart but looks like on web all Down's are DragStart's ?
+    el.on_event_with_system::<Pointer<Drag>, _>(|In((entity, _)), mut commands: Commands| {
         if let Some(mut entity) = commands.get_entity(entity) {
             entity.try_insert(Dragging);
         }
@@ -6144,18 +6164,21 @@ struct LightRaysMaterial {
     #[sampler(1)]
     texture: Option<Handle<Image>>,
     #[uniform(2)]
-    translation: Vec2,
+    translation: Vec4, // only x/y are used, the rest are padding for webgl2
     #[uniform(3)]
-    size: f32,
+    size: Vec4, // only x is used, the rest are padding for webgl2
     entity: Entity,
 }
+
+// TODO: 0.16 migrate to weak_handle!
+const LIGHT_RAYS: Handle<Shader> = Handle::weak_from_u128(163308648016094179464119256462205316257);
 
 impl LightRaysMaterial {
     fn new(text_entity: Entity) -> Self {
         Self {
             texture: Some(TextAtlas::DEFAULT_IMAGE.clone_weak()),
-            translation: Vec2::new(0., 0.),
-            size: DEFAULT_FONT_SIZE + 2.,
+            translation: Vec4::new(0., 0., 0., 0.),
+            size: Vec4::new(DEFAULT_FONT_SIZE + 2., 0., 0., 0.),
             entity: text_entity,
         }
     }
@@ -6167,7 +6190,7 @@ impl Material2d for LightRaysMaterial {
     }
 
     fn fragment_shader() -> ShaderRef {
-        ShaderRef::Path("embedded://aalo/assets/light_rays.wgsl".into())
+        ShaderRef::Handle(LIGHT_RAYS)
     }
 }
 
@@ -6180,7 +6203,7 @@ fn update_light_rays_material(
 ) {
     for (_, material) in materials.iter_mut() {
         if let Ok(global_transform) = global_transforms.get(material.entity) {
-            material.translation = global_transform.translation().xy();
+            material.translation = global_transform.translation().xyzz();
         }
     }
 }
@@ -6369,7 +6392,7 @@ pub(super) fn plugin(app: &mut App) {
     if !app.is_plugin_added::<HaalkaPlugin>() {
         app.add_plugins(HaalkaPlugin);
     }
-    embedded_asset!(app, "assets/light_rays.wgsl");
+    bevy_asset::load_internal_asset!(app, LIGHT_RAYS, "assets/light_rays.wgsl", Shader::from_wgsl);
     app.add_plugins(Material2dPlugin::<LightRaysMaterial>::default())
         .add_plugins(Text3dPlugin {
             load_font_embedded: vec![DEFAULT_FONT_DATA],

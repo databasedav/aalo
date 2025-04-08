@@ -247,7 +247,7 @@ dependencies = [
  "objc2-foundation 0.3.0",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
  "x11rb",
 ]
 
@@ -2644,7 +2644,7 @@ dependencies = [
 [[package]]
 name = "haalka"
 version = "0.4.0"
-source = "git+https://github.com/databasedav/haalka.git?branch=more_aalo_prep#dd9801edc533717ee2b27e60cd6f14c6ea1d4831"
+source = "git+https://github.com/databasedav/haalka.git?branch=more_aalo_prep#11d6184167435f6e8b9aabfe6fdb74a8a2bfed45"
 dependencies = [
  "apply",
  "async-io",
@@ -2682,7 +2682,7 @@ dependencies = [
 [[package]]
 name = "haalka_futures_signals_ext"
 version = "0.0.2"
-source = "git+https://github.com/databasedav/haalka.git?branch=more_aalo_prep#dd9801edc533717ee2b27e60cd6f14c6ea1d4831"
+source = "git+https://github.com/databasedav/haalka.git?branch=more_aalo_prep#11d6184167435f6e8b9aabfe6fdb74a8a2bfed45"
 dependencies = [
  "futures-signals",
  "haalka_futures_util_ext",
@@ -2692,7 +2692,7 @@ dependencies = [
 [[package]]
 name = "haalka_futures_util_ext"
 version = "0.0.1"
-source = "git+https://github.com/databasedav/haalka.git?branch=more_aalo_prep#dd9801edc533717ee2b27e60cd6f14c6ea1d4831"
+source = "git+https://github.com/databasedav/haalka.git?branch=more_aalo_prep#11d6184167435f6e8b9aabfe6fdb74a8a2bfed45"
 dependencies = [
  "futures-util",
  "pin-project",
@@ -2700,9 +2700,9 @@ dependencies = [
 
 [[package]]
 name = "half"
-version = "2.5.0"
+version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7db2ff139bba50379da6aa0766b52fdcb62cb5b263009b09ed58ba604e14bbd1"
+checksum = "459196ed295495a68f7d7fe1d84f6c4b7ff0e21fe3017b2f283c6fac3ad803c9"
 dependencies = [
  "cfg-if",
  "crunchy",

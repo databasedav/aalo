@@ -1,8 +1,5 @@
 use bevy_app::prelude::*;
-use bevy_core_pipeline::core_2d::Camera2d;
 use bevy_ecs::prelude::*;
-use bevy_picking::prelude::*;
-use bevy_render::prelude::*;
 use bevy_ui::prelude::*;
 use bevy_utils::prelude::*;
 use haalka::prelude::*;
@@ -127,18 +124,9 @@ impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {
             app.add_systems(
                 PostStartup,
                 clone!((transformers) move |mut commands: Commands| {
-                    let camera = commands.spawn((Camera2d, Camera { order: AALO_TEXT_CAMERA_ORDER - 1, ..default() })).id();
                     commands.queue(clone!((transformers) move |world: &mut World| {
                         El::<Node>::new()
-                            .ui_root()
-                            .update_raw_el(move |raw_el| {
-                                raw_el
-                                .insert(PickingBehavior {
-                                    should_block_lower: false,
-                                    ..default()
-                                })
-                                .insert(TargetCamera(camera))
-                            })
+                            .global_z_index(GlobalZIndex(i32::MIN))
                             .width(Val::Percent(100.))
                             .height(Val::Percent(100.))
                             .cursor(CursorIcon::System(SystemCursorIcon::Default))

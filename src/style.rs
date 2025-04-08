@@ -13,6 +13,7 @@ pub(crate) static Z_ORDER: &[&str] = &[
     "target/search",
     "scrollbar",
     "header",
+    "inspector",
 ];
 
 pub(crate) fn z_order(name: &str) -> i32 {
