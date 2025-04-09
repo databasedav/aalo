@@ -247,7 +247,7 @@ dependencies = [
  "objc2-foundation 0.3.0",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
  "x11rb",
 ]
 
@@ -2643,8 +2643,9 @@ dependencies = [
 
 [[package]]
 name = "haalka"
-version = "0.4.0"
-source = "git+https://github.com/databasedav/haalka.git?branch=more_aalo_prep#11d6184167435f6e8b9aabfe6fdb74a8a2bfed45"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ecbb6bc8004583b2582d7c0ee6052ce94de6d8b01d5f8f4960c5e1fefd5431ed"
 dependencies = [
  "apply",
  "async-io",
@@ -2682,7 +2683,8 @@ dependencies = [
 [[package]]
 name = "haalka_futures_signals_ext"
 version = "0.0.2"
-source = "git+https://github.com/databasedav/haalka.git?branch=more_aalo_prep#11d6184167435f6e8b9aabfe6fdb74a8a2bfed45"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43ea54acdcc30651005b6ae7e4e2c8754a48282573c48127ef696ceca5cd47f5"
 dependencies = [
  "futures-signals",
  "haalka_futures_util_ext",
@@ -2692,7 +2694,8 @@ dependencies = [
 [[package]]
 name = "haalka_futures_util_ext"
 version = "0.0.1"
-source = "git+https://github.com/databasedav/haalka.git?branch=more_aalo_prep#11d6184167435f6e8b9aabfe6fdb74a8a2bfed45"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7571f6bbb0afdb1095e6e4020947a1c81ab5037089798c40021300b3951c9577"
 dependencies = [
  "futures-util",
  "pin-project",

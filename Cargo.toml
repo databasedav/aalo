@@ -35,9 +35,7 @@ bevy_transform = "0.15"
 bevy_ui = "0.15"
 bevy_utils = "0.15"
 bevy_window = "0.15"
-# haalka = { version = "0.4" }
-haalka = { git = "https://github.com/databasedav/haalka.git", branch = "more_aalo_prep" }
-# haalka = { path = "../haalka" }
+haalka = { version = "0.4" }
 disqualified = "1.0"
 paste = "1.0"
 nucleo-matcher = "0.3"
