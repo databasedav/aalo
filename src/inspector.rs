@@ -812,7 +812,7 @@ impl ElementWrapper for Inspector {
             .apply(spawn)
         };
         let active_filterer = Mutable::new(None);
-        let on_add_search_filterer_task = {
+        let on_insert_search_filterer_task = {
             clone!((entities, resources, assets) map_ref! {
                 let &show = show_search.signal(),
                 let root = search_target_root.signal(),
@@ -899,7 +899,7 @@ impl ElementWrapper for Inspector {
         .hovered_sync(inspector_hovered.clone())
         .update_raw_el(clone!((show_search, show_targeting, first_target, second_target, third_target, search_target_root, targeting_target_root, search) move |raw_el| {
             raw_el
-            .hold_tasks([search_task, on_add_search_filterer_task])
+            .hold_tasks([search_task, on_insert_search_filterer_task])
             .on_spawn_with_system(|
                 In(entity): In<Entity>,
                 default_ui_camera_option: Option<Single<Entity, With<IsDefaultUiCamera>>>,
