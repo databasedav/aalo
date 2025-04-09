@@ -667,7 +667,12 @@ fn listen_to_expanded_component(
 
 fn make_matcher_and_atom(search: &str) -> (Matcher, Pattern) {
     let matcher = Matcher::new(Config::DEFAULT);
-    let atom = Pattern::new(search, CaseMatching::Smart, Normalization::Smart, nucleo_matcher::pattern::AtomKind::Fuzzy);
+    let atom = Pattern::new(
+        search,
+        CaseMatching::Smart,
+        Normalization::Smart,
+        nucleo_matcher::pattern::AtomKind::Fuzzy,
+    );
     (matcher, atom)
 }
 
@@ -755,7 +760,7 @@ impl ElementWrapper for Inspector {
                                 if search.is_empty() {
                                     unfilter_entities();
                                 } else {
-                                    let (mut matcher, atom) = make_matcher_and_atom(&search);
+                                    let (mut matcher, atom) = make_matcher_and_atom(search);
                                     for (_, EntityData { name: name_option, filtered, .. }) in entities.lock_ref().iter() {
                                         filtered.set_neq(
                                             if let Some(name) = &*name_option.lock_ref() {
@@ -773,7 +778,7 @@ impl ElementWrapper for Inspector {
                                 if search.is_empty() {
                                     unfilter_resources();
                                 } else {
-                                    let (mut matcher, atom) = make_matcher_and_atom(&search);
+                                    let (mut matcher, atom) = make_matcher_and_atom(search);
                                     for (_, FieldData { name, filtered, .. }) in resources.lock_ref().iter() {
                                         filtered.set_neq(
                                             atom_score(&mut matcher, &atom, name).is_none()
@@ -787,7 +792,7 @@ impl ElementWrapper for Inspector {
                                 if search.is_empty() {
                                     unfilter_assets();
                                 } else {
-                                    let (mut matcher, atom) = make_matcher_and_atom(&search);
+                                    let (mut matcher, atom) = make_matcher_and_atom(search);
                                     for (_, AssetData { name, filtered, .. }) in assets.lock_ref().iter() {
                                         filtered.set_neq(
                                             atom_score(&mut matcher, &atom, name).is_none()
