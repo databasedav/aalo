@@ -75,6 +75,7 @@ use crate::{impl_syncers, signal_or};
 // TODO: toggle inspector
 // TODO: docs
 // TODO: states reflection
+// TODO: typing in the searching or targeting box should disable inputs somehow ?
 
 // TODO: dragging numeric field doesn't work when number is very big ?
 // TODO: text input growing is a bit too much / looks kinda cringe (y does text end align to center ??)
