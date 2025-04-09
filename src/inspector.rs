@@ -66,8 +66,6 @@ use strum::{Display, EnumIter, IntoEnumIterator};
 use super::{defaults::*, globals::*, reflect::*, style::*, utils::*, widgets::*};
 use crate::{impl_syncers, signal_or};
 
-// TODO: (haalka) make UiRoot a component ?
-
 // TODO: implement frontend for at least all ui node types; how abt char, str, unit ? for unit, see (resources, Time, .context), should just be a tooltip
 // TODO: dropdown z index is greater than headers so it appears above them when scrolling up
 // TODO: counters for haalka and aalo systems with tooltips saying they can't be expanded because that would cause infinite recursion
@@ -75,8 +73,10 @@ use crate::{impl_syncers, signal_or};
 // TODO: toggle inspector
 // TODO: docs
 // TODO: states reflection
-// TODO: typing in the searching or targeting box should disable inputs somehow ?
+// TODO: show reflect documentation on hover (or right click ?) (see bevy-inspector-egui)
 
+// TODO: unnamed entities should probably just default to unsorted ?
+// TODO: typing in the searching or targeting box should disable inputs somehow ? (status quo in bevy-inspector-egui is doing nothing)
 // TODO: dragging numeric field doesn't work when number is very big ?
 // TODO: text input growing is a bit too much / looks kinda cringe (y does text end align to center ??)
 // TODO: parsed failed does not clear error on escape but does on enter
@@ -104,7 +104,6 @@ use crate::{impl_syncers, signal_or};
 // TODO: make text selectable
 // TODO: inspect the inspector itself
 // TODO: runtime font size (+/- hotkey) (need some dropdown fixes because of this too)
-// TODO: show reflect documentation on hover (or right click ?) (see bevy-inspector-egui)
 // TODO: separate font for code blocks
 // TODO: inter inspector z conflicts
 // TODO: open dropdowns z index does not respect header pinning
@@ -666,6 +665,16 @@ fn listen_to_expanded_component(
     }
 }
 
+fn make_matcher_and_atom(search: &str) -> (Matcher, Pattern) {
+    let matcher = Matcher::new(Config::DEFAULT);
+    let atom = Pattern::new(search, CaseMatching::Smart, Normalization::Smart, nucleo_matcher::pattern::AtomKind::Fuzzy);
+    (matcher, atom)
+}
+
+fn atom_score(matcher: &mut Matcher, atom: &Pattern, name: &str) -> Option<u32> {
+    atom.score(nucleo_matcher::Utf32String::from(name).slice(..), matcher)
+}
+
 impl ElementWrapper for Inspector {
     type EL = Stack<Node>;
     fn element_mut(&mut self) -> &mut Self::EL {
@@ -746,12 +755,11 @@ impl ElementWrapper for Inspector {
                                 if search.is_empty() {
                                     unfilter_entities();
                                 } else {
-                                    let matcher = &mut Matcher::new(Config::DEFAULT);
-                                    let atom = Pattern::new(search, CaseMatching::Smart, Normalization::Smart, nucleo_matcher::pattern::AtomKind::Fuzzy);
+                                    let (mut matcher, atom) = make_matcher_and_atom(&search);
                                     for (_, EntityData { name: name_option, filtered, .. }) in entities.lock_ref().iter() {
                                         filtered.set_neq(
                                             if let Some(name) = &*name_option.lock_ref() {
-                                                atom.score(nucleo_matcher::Utf32String::from(name.as_str()).slice(..), matcher).is_none()
+                                                atom_score(&mut matcher, &atom, name).is_none()
                                             } else {
                                                 true
                                             }
@@ -765,11 +773,10 @@ impl ElementWrapper for Inspector {
                                 if search.is_empty() {
                                     unfilter_resources();
                                 } else {
-                                    let matcher = &mut Matcher::new(Config::DEFAULT);
-                                    let atom = Pattern::new(search, CaseMatching::Smart, Normalization::Smart, nucleo_matcher::pattern::AtomKind::Fuzzy);
+                                    let (mut matcher, atom) = make_matcher_and_atom(&search);
                                     for (_, FieldData { name, filtered, .. }) in resources.lock_ref().iter() {
                                         filtered.set_neq(
-                                            atom.score(nucleo_matcher::Utf32String::from(name.as_str()).slice(..), matcher).is_none()
+                                            atom_score(&mut matcher, &atom, name).is_none()
                                         )
                                     }
                                 }
@@ -780,11 +787,10 @@ impl ElementWrapper for Inspector {
                                 if search.is_empty() {
                                     unfilter_assets();
                                 } else {
-                                    let matcher = &mut Matcher::new(Config::DEFAULT);
-                                    let atom = Pattern::new(search, CaseMatching::Smart, Normalization::Smart, nucleo_matcher::pattern::AtomKind::Fuzzy);
+                                    let (mut matcher, atom) = make_matcher_and_atom(&search);
                                     for (_, AssetData { name, filtered, .. }) in assets.lock_ref().iter() {
                                         filtered.set_neq(
-                                            atom.score(nucleo_matcher::Utf32String::from(*name).slice(..), matcher).is_none()
+                                            atom_score(&mut matcher, &atom, name).is_none()
                                         )
                                     }
                                 }
@@ -794,6 +800,65 @@ impl ElementWrapper for Inspector {
                         unfilter_entities();
                         unfilter_resources();
                         unfilter_assets();
+                    }
+                }
+            })
+            .to_future()
+            .apply(spawn)
+        };
+        let active_filterer = Mutable::new(None);
+        let on_add_search_filterer_task = {
+            clone!((entities, resources, assets) map_ref! {
+                let &show = show_search.signal(),
+                let root = search_target_root.signal(),
+                let search = search.signal_cloned() => {
+                    if show && search.is_empty().not() {
+                        let search = search.clone();
+                        let task = match root {
+                            InspectionTargetRoot::Entity => {
+                                entities.signal_map_cloned().for_each(move |map_diff| {
+                                    if let MapDiff::Insert { value: EntityData { name: name_option, filtered, .. }, .. } = map_diff {
+                                        let (mut matcher, atom) = make_matcher_and_atom(&search);
+                                        filtered.set_neq(
+                                            if let Some(name) = &*name_option.lock_ref() {
+                                                atom_score(&mut matcher, &atom, name).is_none()
+                                            } else {
+                                                true
+                                            }
+                                        )
+                                    }
+                                    async {}
+                                })
+                                .apply(spawn)
+                            },
+                            InspectionTargetRoot::Resource => {
+                                resources.signal_map_cloned().for_each(move |map_diff| {
+                                    if let MapDiff::Insert { value: FieldData { name, filtered, .. }, .. } = map_diff {
+                                        let (mut matcher, atom) = make_matcher_and_atom(&search);
+                                        filtered.set_neq(
+                                            atom_score(&mut matcher, &atom, &name).is_none()
+                                        )
+                                    }
+                                    async {}
+                                })
+                                .apply(spawn)
+                            },
+                            InspectionTargetRoot::Asset => {
+                                assets.signal_map_cloned().for_each(move |map_diff| {
+                                    if let MapDiff::Insert { value: AssetData { name, filtered, .. }, .. } = map_diff {
+                                        let (mut matcher, atom) = make_matcher_and_atom(&search);
+                                        filtered.set_neq(
+                                            atom_score(&mut matcher, &atom, name).is_none()
+                                        )
+                                    }
+                                    async {}
+                                })
+                                .apply(spawn)
+                            },
+                        };
+                        active_filterer.set(Some(task));
+                    } else {
+                        active_filterer.take();
                     }
                 }
             })
@@ -827,9 +892,9 @@ impl ElementWrapper for Inspector {
         .width(Val::Percent(100.))
         .height(Val::Percent(100.))
         .hovered_sync(inspector_hovered.clone())
-        .update_raw_el(clone!((search_focused, show_search, first_target_focused, show_targeting, second_target_focused, third_target_focused, first_target, second_target, third_target, search_target_root, targeting_target_root, search_target_root_focused, targeting_target_root_focused, search) move |raw_el| {
+        .update_raw_el(clone!((show_search, show_targeting, first_target, second_target, third_target, search_target_root, targeting_target_root, search) move |raw_el| {
             raw_el
-            .hold_tasks([search_task])
+            .hold_tasks([search_task, on_add_search_filterer_task])
             .on_spawn_with_system(|
                 In(entity): In<Entity>,
                 default_ui_camera_option: Option<Single<Entity, With<IsDefaultUiCamera>>>,
@@ -1028,55 +1093,7 @@ impl ElementWrapper for Inspector {
                     }
                 }
             })
-            // TODO: the cross contamination here is pretty cringe, can we avoid it ? granularizing hotkey listeners is just as bad, likely requires relations
-            .observe(clone!((first_target_focused, second_target_focused, third_target_focused, search_focused, show_search, show_targeting) move |_: Trigger<ShowSearch>| {
-                if first_target_focused.get().not() & second_target_focused.get().not() & third_target_focused.get().not() {
-                    show_targeting.set_neq(false);
-                    search_focused.set_neq(true);
-                    show_search.set_neq(true);
-                }
-            }))
-            .observe(clone!((show_search) move |_: Trigger<HideSearch>| {
-                show_search.set_neq(false);
-            }))
-            .observe(clone!((first_target_focused, show_targeting, second_target_focused, third_target_focused, search_focused, show_search) move |_: Trigger<ShowTargeting>| {
-                if search_focused.get().not() && first_target_focused.get().not() && second_target_focused.get().not() && third_target_focused.get().not() {
-                    show_search.set_neq(false);
-                    first_target_focused.set_neq(true);
-                    show_targeting.set_neq(true);
-                }
-            }))
-            .observe(clone!((show_targeting) move |_: Trigger<HideTargeting>| {
-                show_targeting.set_neq(false);
-            }))
-            .observe(clone!((search_focused, show_search, show_targeting, search_target_root_focused, targeting_target_root_focused, targeting_target_root) move |event: Trigger<Tab>| {
-                if show_search.get() {
-                    let focuseds = [search_target_root_focused.clone(), search_focused.clone()];
-                    iter_focused(&focuseds, event.event());
-                }
-                if show_targeting.get() {
-                    let mut focuseds = vec![targeting_target_root_focused.clone(), first_target_focused.clone(), second_target_focused.clone()];
-                    if !matches!(targeting_target_root.get(), InspectionTargetRoot::Resource) {
-                        focuseds.push(third_target_focused.clone());
-                    }
-                    iter_focused(&focuseds, event.event());
-                }
-            }))
-            .observe(clone!((search_target_root, targeting_target_root) move |event: Trigger<TargetRootMove>| {
-                if show_search.get() && search_target_root_focused.get() {
-                    iter_target_root(&search_target_root, event.event());
-                }
-                if show_targeting.get() && targeting_target_root_focused.get() {
-                    iter_target_root(&targeting_target_root, event.event());
-                }
-            }))
         }))
-        .on_click_with_system(|In((entity, _)), mut commands: Commands| commands.insert_resource(SelectedInspector(entity)))
-        .on_click_outside_with_system(|In((entity, _)), selected_inspector_option: Option<Res<SelectedInspector>>, mut commands: Commands| {
-            if selected_inspector_option.as_deref().map(Deref::deref).copied() == Some(entity) {
-                commands.remove_resource::<SelectedInspector>();
-            }
-        })
         // need this outside the column to allow mouse wheel scrolling when hovered above scrollbar track
         .on_hovered_change_with_system(|In((entity, hovered)), childrens: Query<&Children>, inspector_columns: Query<&InspectorColumn>, mut commands: Commands| {
             if let Some(inspector_column) = inspector_column(entity, &childrens, &inspector_columns) {
@@ -1698,7 +1715,8 @@ impl ElementWrapper for Inspector {
                         search,
                         search_focused,
                         column_gap,
-                        search_target_root
+                        search_target_root,
+                        search_target_root_focused
                     ) move || {
                         let hovered = Mutable::new(false);
                         Column::<Node>::new()
@@ -1782,7 +1800,9 @@ impl ElementWrapper for Inspector {
                         third_target,
                         second_target,
                         first_target,
-                        first_target_focused
+                        first_target_focused,
+                        targeting_target_root,
+                        targeting_target_root_focused
                     ) move || {
                         let first_target_hovered = Mutable::new(false);
                         let second_target_hovered = Mutable::new(false);
@@ -1993,7 +2013,13 @@ impl ElementWrapper for Inspector {
             }))
         )
         // TODO: move these to the inspector once the resize border wrapper is no longer needed
-        .update_raw_el(|raw_el| {
+        .on_click_with_system(|In((entity, _)), mut commands: Commands| commands.insert_resource(SelectedInspector(entity)))
+        .on_click_outside_with_system(|In((entity, _)), selected_inspector_option: Option<Res<SelectedInspector>>, mut commands: Commands| {
+            if selected_inspector_option.as_deref().map(Deref::deref).copied() == Some(entity) {
+                commands.remove_resource::<SelectedInspector>();
+            }
+        })
+        .update_raw_el(clone!((search_focused, first_target_focused, second_target_focused, third_target_focused, search_target_root_focused, targeting_target_root, targeting_target_root_focused) move |raw_el| {
             raw_el
             .insert(InspectorMarker)
             .insert(TooltipHolder(tooltip.clone()))
@@ -2025,7 +2051,49 @@ impl ElementWrapper for Inspector {
                     }
                 }
             })
-        })
+            // TODO: the cross contamination here is pretty cringe, can we avoid it ? granularizing hotkey listeners is just as bad, likely requires relations
+            .observe(clone!((first_target_focused, second_target_focused, third_target_focused, search_focused, show_search, show_targeting) move |_: Trigger<ShowSearch>| {
+                if first_target_focused.get().not() & second_target_focused.get().not() & third_target_focused.get().not() {
+                    show_targeting.set_neq(false);
+                    search_focused.set_neq(true);
+                    show_search.set_neq(true);
+                }
+            }))
+            .observe(clone!((show_search) move |_: Trigger<HideSearch>| {
+                show_search.set_neq(false);
+            }))
+            .observe(clone!((first_target_focused, show_targeting, second_target_focused, third_target_focused, search_focused, show_search) move |_: Trigger<ShowTargeting>| {
+                if search_focused.get().not() && first_target_focused.get().not() && second_target_focused.get().not() && third_target_focused.get().not() {
+                    show_search.set_neq(false);
+                    first_target_focused.set_neq(true);
+                    show_targeting.set_neq(true);
+                }
+            }))
+            .observe(clone!((show_targeting) move |_: Trigger<HideTargeting>| {
+                show_targeting.set_neq(false);
+            }))
+            .observe(clone!((search_focused, show_search, show_targeting, search_target_root_focused, targeting_target_root_focused, targeting_target_root) move |event: Trigger<Tab>| {
+                if show_search.get() {
+                    let focuseds = [search_target_root_focused.clone(), search_focused.clone()];
+                    iter_focused(&focuseds, event.event());
+                }
+                if show_targeting.get() {
+                    let mut focuseds = vec![targeting_target_root_focused.clone(), first_target_focused.clone(), second_target_focused.clone()];
+                    if !matches!(targeting_target_root.get(), InspectionTargetRoot::Resource) {
+                        focuseds.push(third_target_focused.clone());
+                    }
+                    iter_focused(&focuseds, event.event());
+                }
+            }))
+            .observe(clone!((search_target_root, targeting_target_root) move |event: Trigger<TargetRootMove>| {
+                if show_search.get() && search_target_root_focused.get() {
+                    iter_target_root(&search_target_root, event.event());
+                }
+                if show_targeting.get() && targeting_target_root_focused.get() {
+                    iter_target_root(&targeting_target_root, event.event());
+                }
+            }))
+        }))
         .apply(background_style(primary_background_color.signal()))
         .cursor(CursorIcon::System(SystemCursorIcon::Default))
         .height_signal(height.signal().map(Val::Px))
