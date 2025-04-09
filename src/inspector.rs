@@ -6392,7 +6392,7 @@ pub(super) fn plugin(app: &mut App) {
     if !app.is_plugin_added::<HaalkaPlugin>() {
         app.add_plugins(HaalkaPlugin);
     }
-    bevy_asset::load_internal_asset!(app, LIGHT_RAYS, "assets/light_rays.wgsl", Shader::from_wgsl);
+    bevy_asset::load_internal_asset!(app, LIGHT_RAYS, "light_rays.wgsl", Shader::from_wgsl);
     app.add_plugins(Material2dPlugin::<LightRaysMaterial>::default())
         .add_plugins(Text3dPlugin {
             load_font_embedded: vec![DEFAULT_FONT_DATA],

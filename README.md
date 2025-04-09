@@ -122,6 +122,7 @@ All examples are compiled to wasm for both webgl2 and webgpu (check [compatibili
 
 |bevy|aalo|
 |-|-|
+|`0.15`|`0.0`|
 
 ## license
 All code in this repository is dual-licensed under either:
