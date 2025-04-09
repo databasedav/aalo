@@ -19,6 +19,12 @@ aalo = { version = "0.0", optional = true }
 [features]
 development = ["aalo"]
 ```
+***HIGHLY RECOMMENDED***, while not required, aalo is much snappier when compiled in release mode, you'll only need to do so once
+
+```toml
+[profile.dev.package.aalo]
+opt-level = 3 
+```
 
 ```rust
 #[cfg(feature = "development")]
@@ -28,16 +34,9 @@ use aalo::prelude::*;
 app.add_plugins(AaloPlugin::new().world());
 ```
 
-***HIGHLY RECOMMENDED***, while not required, aalo is much snappier when compiled in release mode, you'll only need to do so once
-
-```toml
-[profile.dev.package.aalo]
-opt-level = 3 
-```
-
 ## registering custom frontends
 
-use `register_frontend`, passing in a fully qualified type path and a function that returns an `impl Bundle`, e.g. `Node`, whose `Entity` also has a `FieldListener` `Component`; `FieldListener` is just a wrapper around a `SystemId<In<Box<dyn PartialReflect>>>`, which will be forwarded the corresponding field's value every frame it is visible in the inspector
+use `register_frontend`, passing in a fully qualified type path and a function that returns an `impl Bundle`, e.g. `Node`, whose `Entity` also has a `FieldListener` `Component`; `FieldListener` is just a wrapper around a `SystemId<In<Box<dyn PartialReflect>>>`, which will be forwarded the corresponding field's value every frame it is visible in the inspector, aalo will unregister the system for you when the entity is despawned
 
 ```rust no_run
 fn init_custom_bool_frontend(mut world: DeferredWorld, entity: Entity, _: ComponentId) {
