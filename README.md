@@ -1,5 +1,9 @@
 # aalo [আলো](https://translate.google.com/?sl=bn&tl=en&text=%E0%A6%86%E0%A6%B2%E0%A7%8B&op=translate)
 
+[![Crates.io Version](https://img.shields.io/crates/v/aalo?style=for-the-badge)](https://crates.io/crates/aalo)
+[![Docs.rs](https://img.shields.io/docsrs/aalo?style=for-the-badge)](https://docs.rs/aalo)
+[![Following released Bevy versions](https://img.shields.io/badge/Bevy%20tracking-released%20version-lightblue?style=for-the-badge)](https://bevyengine.org/learn/quick-start/plugin-development/#main-branch-tracking)
+
 ```text
 in bengali, aalo means "light" (i.e. photons), not to be confused with haalka !
 ```
@@ -46,9 +50,7 @@ fn init_custom_bool_frontend(mut world: DeferredWorld, entity: Entity, _: Compon
                     .map(|CustomBoolComponent(cur)| cur)
             });
             if let Some(cur) = cur_option {
-                commands
-                    .entity(text)
-                    .insert(Text::new(if cur { "true" } else { "false" }));
+                commands.entity(text).insert(Text(cur.to_string()));
             }
         },
     );
