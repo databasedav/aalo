@@ -11,7 +11,7 @@ doctest:
 test: doctest
 
 clippy *extras:
-  cargo clippy --all-features --all-targets --locked -- --deny warnings --no-deps {{ extras }}
+  cargo +nightly clippy --all-features --all-targets --locked -- --deny warnings --no-deps {{ extras }}
 
 # TODO: --all-features flag doesn't work because examples shenanigans
 check_all_features:
@@ -32,7 +32,7 @@ sign_tag tag:
   GIT_COMMITTER_DATE="$(git log -1 --format=%aD {{ tag }})" git tag {{ tag }} {{ tag }} -f -s && git push --tags --force
 
 # TODO: use an actual list https://github.com/casey/just/issues/2458
-exclude_examples := '"test"'
+exclude_examples := '"test", "utils"'
 
 list_examples:
   @cargo metadata --no-deps --format-version 1 | jq -c --argjson exclude '[{{ exclude_examples }}]' '[.packages[].targets[] | select(.kind[] == "example" and (.name as $name | $exclude | index($name) | not)) | .name]'

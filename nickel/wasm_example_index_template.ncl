@@ -9,9 +9,8 @@ let global_styles = "height: 100%; width: 100%; margin: 0; padding: 0; border: 0
 
       <head>
           <meta charset="utf-8" />
-          <title>haalka %{ example } example</title>
-          <link data-trunk rel="copy-dir" href="assets" />
-          <link data-trunk rel="rust" data-cargo-features="debug,deployed_wasm_example,%{ features |> std.string.join "," }" data-wasm-opt="s" href="." />
+          <title>aalo %{ example } example</title>
+          <link data-trunk rel="rust" data-cargo-features="deployed_wasm_example,%{ features |> std.string.join "," }" data-wasm-opt="s" href="." />
       </head>
 
       <body style="%{ global_styles }">

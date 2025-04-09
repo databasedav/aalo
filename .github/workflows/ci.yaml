@@ -54,7 +54,7 @@ jobs:
     - name: install binstall
       uses: cargo-bins/cargo-binstall@main
     - name: install cargo all features
-      run: cargo binstall --no-confirm cargo-all-features
+      run: cargo binstall --no-confirm --continue-on-failure cargo-all-features
     - name: check all features
       run: just check_all_features
   clippy:
@@ -70,7 +70,7 @@ jobs:
       uses: dtolnay/rust-toolchain@master
       with:
         components: clippy
-        toolchain: stable
+        toolchain: nightly
     - name: install bevy dependencies
       run: sudo apt-get update && sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
       shell: bash

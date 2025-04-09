@@ -1,4 +1,8 @@
 //! register custom frontends for any type
+
+mod utils;
+use utils::*;
+
 use aalo::prelude::*;
 use bevy::ecs::{component::ComponentId, world::DeferredWorld};
 use bevy::prelude::*;
@@ -7,7 +11,7 @@ fn main() {
     register_frontend("bool", custom_bool_frontend);
     register_frontend("custom::CustomBoolComponent", custom_bool_frontend);
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(example_window_plugin()))
         .add_plugins(AaloPlugin::new().world().with_inspector(|inspector| {
             inspector.jump_to(("entity", "custom bool field", "boolcomponent", ".0"))
         }))
@@ -33,9 +37,7 @@ fn init_custom_bool_frontend(mut world: DeferredWorld, entity: Entity, _: Compon
                     .map(|CustomBoolComponent(cur)| cur)
             });
             if let Some(cur) = cur_option {
-                commands
-                    .entity(text)
-                    .insert(Text::new(if cur { "true" } else { "false" }));
+                commands.entity(text).insert(Text(cur.to_string()));
             }
         },
     );
@@ -51,7 +53,7 @@ fn init_custom_bool_frontend(mut world: DeferredWorld, entity: Entity, _: Compon
                         "false" => false,
                         _ => return,
                     };
-                    // one of these will silently error depending on if its the field or component
+                    // one of these will silently error depending on if it's the field or component
                     // target, we just do both here for the convenience of using the same frontend
                     field.update(click.entity(), (!cur).clone_value());
                     field.update(click.entity(), CustomBoolComponent(!cur).clone_value());

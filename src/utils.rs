@@ -1,15 +1,12 @@
 use bevy_ecs::{
     prelude::*,
-    system::{SystemId, SystemParam},
+    system::{RunSystemOnce, SystemId, SystemParam},
 };
 use bevy_hierarchy::prelude::*;
 use bevy_math::prelude::*;
 use bevy_picking::prelude::*;
-use bevy_render::prelude::*;
 use bevy_ui::prelude::*;
 use haalka::prelude::*;
-
-use super::style::*;
 
 // TODO: move to haalka ?
 #[macro_export]
@@ -125,6 +122,19 @@ pub fn sync_tooltip_position(
                 }
             },
         )
+        .on_remove(|world, entity| {
+            world.commands().queue(move |world: &mut World| {
+                let _ = world.run_system_once(move |tooltips: Query<&TooltipHolder>| {
+                    // needed to iterate through all of them since no components are available to target a specific inspector ? TODO
+                    for TooltipHolder(tooltip) in tooltips.iter() {
+                        let mut lock = tooltip.lock_mut();
+                        if lock.as_ref().map(|tooltip| tooltip.owner) == Some(entity) {
+                            *lock = None;
+                        }
+                    }
+                });
+            })
+        })
     }
 }
 
@@ -198,7 +208,7 @@ impl<'w, 's> MoveTooltipToPosition<'w, 's> {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct TooltipData {
     pub owner: Entity,
     pub text: String,
@@ -222,9 +232,11 @@ pub struct TooltipCache<'w, 's> {
 
 impl<'w, 's> TooltipCache<'w, 's> {
     pub fn get(&mut self, entity: Entity) -> Option<Mutable<Option<TooltipData>>> {
-        if let Some(inspector) = self.inspector_ancestor.get(entity) {
-            if let Ok(TooltipHolder(tooltip)) = self.tooltips.get(inspector).cloned() {
-                *self.cache = Some(tooltip);
+        if self.cache.is_none() {
+            if let Some(inspector) = self.inspector_ancestor.get(entity) {
+                if let Ok(TooltipHolder(tooltip)) = self.tooltips.get(inspector).cloned() {
+                    *self.cache = Some(tooltip);
+                }
             }
         }
         self.cache.clone()

@@ -1,17 +1,22 @@
-//! basic world inspector, inspired by https://github.com/jakobhellermann/bevy-inspector-egui/blob/main/crates/bevy-inspector-egui/examples/quick/world_inspector.rs
+//! basic world inspector, inspired by <https://github.com/jakobhellermann/bevy-inspector-egui/blob/main/crates/bevy-inspector-egui/examples/quick/world_inspector.rs>
+
+mod utils;
+use utils::*;
+
 use aalo::prelude::*;
 use bevy::prelude::*;
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(example_window_plugin()))
         .add_plugins(AaloPlugin::new().world().with_inspector(|inspector| {
-            inspector.jump_to(("entity", "my cube", "globaltransform", ".0.translation"))
+            inspector.jump_to(("entity", "my cube", "transform", ".translation"))
         }))
         .add_systems(Startup, setup)
         .run();
 }
 
+#[allow(clippy::eq_op)]
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,

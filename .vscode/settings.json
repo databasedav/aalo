@@ -6,7 +6,7 @@
         {
             "match": ".*.ncl$",
             // need to suppress stderr output, because otherwise file watcher extension complains
-            "cmd": "cd haalka && just sync_nickels 2> /dev/null",
+            "cmd": "cd aalo && just sync_nickels 2> /dev/null",
             "event": "onFileChange"
         }
     ]

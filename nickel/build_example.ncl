@@ -40,7 +40,7 @@ let { sync_name_field, run_on_ubuntu_latest, .. } = import "utils.ncl" in
           {
             name = "build example",
             "if" = "${{ inputs.api == 'webgpu' }}",
-            run = "just build_wasm_example ${{ inputs.example }} webgpu"
+            run = "just build_wasm_example ${{ inputs.example }} haalka/webgpu"
           },
           {
             name = "upload dist",

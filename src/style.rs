@@ -1,16 +1,11 @@
 #[allow(dead_code)]
 use std::ops::Neg;
 
-use bevy_app::prelude::*;
 use bevy_color::prelude::*;
-use bevy_ecs::prelude::*;
-use bevy_input::prelude::*;
 use bevy_text::prelude::*;
 use bevy_ui::prelude::*;
 use haalka::prelude::*;
 use strum::EnumIter;
-
-use crate::signal_or;
 
 pub(crate) static Z_ORDER: &[&str] = &[
     "tooltip",
@@ -18,6 +13,7 @@ pub(crate) static Z_ORDER: &[&str] = &[
     "target/search",
     "scrollbar",
     "header",
+    "inspector",
 ];
 
 pub(crate) fn z_order(name: &str) -> i32 {
@@ -113,7 +109,7 @@ pub fn padding_style<E: RawElWrapper>(
             raw_el.on_signal_with_component::<_, Node>(
                 padding.dedupe().map(Val::Px),
                 move |mut node, p| {
-                    let ref mut padding = node.padding;
+                    let padding = &mut node.padding;
                     for edge in edges.iter() {
                         match edge {
                             BoxEdge::Top => padding.top = p,
@@ -172,9 +168,9 @@ pub fn outline_style<E: Element>(
                     let &offset = offset.signal(),
                     let &color = color.signal()
                     => Outline {
-                        width: width,
-                        offset: offset,
-                        color: color,
+                        width,
+                        offset,
+                        color,
                     }
                 }
             }))
@@ -302,7 +298,7 @@ pub fn border_width_style<E: Element>(
             raw_el.on_signal_with_component::<_, Node>(
                 border_width.dedupe().map(Val::Px),
                 move |mut node, border_width| {
-                    let ref mut border = node.border;
+                    let border = &mut node.border;
                     for edge in edges.iter() {
                         match edge {
                             BoxEdge::Top => border.top = border_width,
@@ -351,7 +347,7 @@ pub fn margin_style<E: Element>(
             raw_el.on_signal_with_component::<_, Node>(
                 margin.dedupe().map(Val::Px),
                 move |mut node, m| {
-                    let ref mut margin = node.margin;
+                    let margin = &mut node.margin;
                     for edge in edges.iter() {
                         match edge {
                             BoxEdge::Top => margin.top = m,

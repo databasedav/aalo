@@ -81,6 +81,7 @@ impl GlobalEventAware for HighlightableText {}
 impl PointerEventAware for HighlightableText {}
 
 impl HighlightableText {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let unhighlighted_color = Mutable::new(DEFAULT_UNHIGHLIGHTED_COLOR);
         let highlighted_color = Mutable::new(DEFAULT_HIGHLIGHTED_COLOR);
@@ -140,6 +141,7 @@ impl Nameable for Checkbox {}
 const CHECKBOX_BORDER_RADIUS_MODIFIER: f32 = 0.333;
 
 impl Checkbox {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let size = GLOBAL_FONT_SIZE.clone();
         let background_color = GLOBAL_SECONDARY_BACKGROUND_COLOR.clone();
@@ -310,11 +312,11 @@ impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for 
                 .update_raw_el(|raw_el| raw_el.on_spawn_with_system(|In(entity), parents: Query<&Parent>, childrens: Query<&Children>, computed_nodes: Query<&ComputedNode>, mut nodes: Query<&mut Node>| {
                     if let Ok(parent) = parents.get(entity) {
                         if let Ok(siblings) = childrens.get(parent.get()) {
-                            if let Some(&sibling) = siblings.get(0) {
+                            if let Some(&sibling) = siblings.first() {
                                 if let Ok(sibling_node) = computed_nodes.get(sibling) {
                                     if let Ok(mut node) = nodes.get_mut(entity) {
                                         // TODO: this is not robust to larger font sizes
-                                        node.top = Val::Px(sibling_node.size().y + 1.);  // TODO: y do i need this 1.
+                                        node.top = Val::Px(sibling_node.size().y + 1.);  // TODO: y do i need this 1. ?
                                     }
                                 }
                             }
@@ -395,10 +397,8 @@ impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for 
                                                     if *lock != data {
                                                         *lock = data;
                                                     }
-                                                } else {
-                                                    if *lock == data {
-                                                        *lock = None;
-                                                    }
+                                                } else if *lock == data {
+                                                    *lock = None;
                                                 }
                                             }
                                         })

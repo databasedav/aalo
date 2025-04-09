@@ -2,8 +2,8 @@
 
 @group(2) @binding(0) var base_color_texture: texture_2d<f32>;
 @group(2) @binding(1) var base_color_sampler: sampler;
-@group(2) @binding(2) var<uniform> translation: vec2<f32>;
-@group(2) @binding(3) var<uniform> size: f32;
+@group(2) @binding(2) var<uniform> translation: vec4<f32>;
+@group(2) @binding(3) var<uniform> size: vec4<f32>;
 
 fn rayStrength(
     raySource: vec2<f32>,
@@ -27,13 +27,13 @@ fn rayStrength(
 fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let coord = (mesh.world_position.xy / mesh.world_position.w) * 0.01;
 
-    let rayPos1    = (vec2<f32>(-size / 1.2, size / 1.5) + translation.xy) * 0.01;
+    let rayPos1    = (vec2<f32>(-size.x / 1.2, size.x / 1.5) + translation.xy) * 0.01;
     let rayRefDir1 = normalize(vec2<f32>(1.0, 1.0));
     let raySeedA1  = 36.2;
     let raySeedB1  = 21.1;
     let raySpeed1  = 5.5;
 
-    let rayPos2    = (vec2<f32>(size / 1.2, size / 1.5) + translation.xy) * 0.01;
+    let rayPos2    = (vec2<f32>(size.x / 1.2, size.x / 1.5) + translation.xy) * 0.01;
     let rayRefDir2 = normalize(vec2<f32>(1.0, -1.0));
     let raySeedA2  = 22.4;
     let raySeedB2  = 18.0;
