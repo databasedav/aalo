@@ -1090,16 +1090,21 @@ impl ElementWrapper for Inspector {
             })
             .observe(clone!((first_target, second_target, third_target) move |event: Trigger<ScrollToRoot>, reset_headers: Query<&ResetHeaders>, childrens: Query<&Children>, mut nodes: Query<&mut Node>, mut commands: Commands| {
                 let entity = event.entity();
-                if let Some((mut entity, reset_headers)) = commands.get_entity(entity).zip(reset_headers.get(entity).ok()) {
+                if let Some(mut entity) = commands.get_entity(entity) {
+                    let root = event.event().0;
                     if show_targeting.get() {
-                        if let Some(target) = make_target(event.event().0, &first_target.lock_ref(), &second_target.lock_ref(), &third_target.lock_ref()) {
+                        if let Some(target) = make_target(root, &first_target.lock_ref(), &second_target.lock_ref(), &third_target.lock_ref()) {
                             entity.try_insert(target);
                         }
+                    } else if show_search.get() {
+                        entity.try_insert(InspectionTarget::from(root));
                     }
-                    for &entity in &reset_headers.0 {
-                        if let Some(&header) = i_born(entity, &childrens, 0) {
-                            if let Ok(mut node) = nodes.get_mut(header) {
-                                node.top = Val::Px(0.);
+                    if let Ok(reset_headers) = reset_headers.get(entity.id()) {
+                        for &entity in &reset_headers.0 {
+                            if let Some(&header) = i_born(entity, &childrens, 0) {
+                                if let Ok(mut node) = nodes.get_mut(header) {
+                                    node.top = Val::Px(0.);
+                                }
                             }
                         }
                     }
@@ -1329,11 +1334,11 @@ impl ElementWrapper for Inspector {
                             .insert(InspectorColumn)
                             .component_signal::<ScrollbarHeight, _>(scrollbar_height_option.signal().map_some(ScrollbarHeight))
                             .observe(on_scroll_header_pinner)
-                            .observe(|event: Trigger<OnInsert, PinnedHeaders>, mut inspector_ancestor: InspectorAncestor, pinned_headers: Query<&PinnedHeaders>, mut commands: Commands| {
+                            .observe(|event: Trigger<OnInsert, PinnedHeaders>, mut inspector_ancestor: InspectorAncestor, mut commands: Commands| {
                                 let entity = event.entity();
                                 if let Some(inspector) = inspector_ancestor.get(entity) {
-                                    if let Some((mut entity, &PinnedHeaders(pinned_headers))) = commands.get_entity(inspector).zip(pinned_headers.get(entity).ok()) {
-                                        entity.try_insert(GlobalZIndex(z_order("inspector") - 1 - pinned_headers as i32 * 2));
+                                    if let Some(mut entity) = commands.get_entity(inspector) {
+                                        entity.try_insert(GlobalZIndex(z_order("inspector") - 100)); // TODO: this depends on the number of expanded headers, be more precise
                                     }
                                 }
                             })
@@ -4644,6 +4649,8 @@ where
                         entity.try_insert(DragInitial::<T>(value.get()));
                     }
                     highlight.set_neq(true);
+                    // TODO: dragstart on web is triggering on down
+                    #[cfg(not(target_arch = "wasm32"))]
                     dragging.set_neq(true);
                 }
             }))
@@ -4664,6 +4671,9 @@ where
                 mut field: TargetField
             | {
                 if matches!(drag.button, PointerButton::Primary) {
+                    // TODO: dragstart on web is triggering on down
+                    #[cfg(target_arch = "wasm32")]
+                    dragging.set_neq(true);
                     if let Ok(&DragInitial(initial)) = drag_initials.get(ui_entity) {
                         let cur = value.get();
                         let new = if !T::IS_INTEGRAL {

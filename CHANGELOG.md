@@ -4,6 +4,12 @@ the format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## unreleased
 
+### fixed
+
+- setting search inspector target root snaps to root header
+- deeply nested headers don't disappear behind inspector
+- numeric fields clickable on web
+
 # 0.0.2 (2025-04-09)
 
 ### added
