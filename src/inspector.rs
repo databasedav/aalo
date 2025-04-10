@@ -324,26 +324,26 @@ pub fn trigger_double_click<Disabled: Component>(raw_el: RawHaalkaEl) -> RawHaal
 }
 
 pub fn scroll_to_header_on_birth(el: RawHaalkaEl) -> RawHaalkaEl {
-    el.observe(|
-        event: Trigger<Born>,
-        childrens: Query<&Children>,
-        mut maybe_scroll_to_header_root: MaybeScrollToHeaderRoot,
-        mut commands: Commands|
-    {
-        let entity = event.entity();
-        // TODO: use relations to safely get the header element
-        if let Some(&header_entity) = i_born(entity, &childrens, 0) {
-            if maybe_scroll_to_header_root
-                .scrolled(header_entity, false)
-                .not()
-            {
-                if let Some(mut entity) = commands.get_entity(entity) {
-                    entity.remove::<WaitForBirth>();
+    el.observe(
+        |event: Trigger<Born>,
+         childrens: Query<&Children>,
+         mut maybe_scroll_to_header_root: MaybeScrollToHeaderRoot,
+         mut commands: Commands| {
+            let entity = event.entity();
+            // TODO: use relations to safely get the header element
+            if let Some(&header_entity) = i_born(entity, &childrens, 0) {
+                if maybe_scroll_to_header_root
+                    .scrolled(header_entity, false)
+                    .not()
+                {
+                    if let Some(mut entity) = commands.get_entity(entity) {
+                        entity.remove::<WaitForBirth>();
+                    }
                 }
+                commands.trigger(RemoveTarget { from: entity });
             }
-            commands.trigger(RemoveTarget { from: entity });
-        }
-    })
+        },
+    )
 }
 
 #[derive(Component)]
@@ -681,7 +681,12 @@ fn atom_score(matcher: &mut Matcher, atom: &Pattern, name: &str) -> Option<u32> 
     atom.score(nucleo_matcher::Utf32String::from(name).slice(..), matcher)
 }
 
-fn make_target(root: InspectionTargetRoot, first_target: &str, second_target: &str, third_target: &str) -> Option<InspectionTarget> {
+fn make_target(
+    root: InspectionTargetRoot,
+    first_target: &str,
+    second_target: &str,
+    third_target: &str,
+) -> Option<InspectionTarget> {
     if first_target.is_empty().not() {
         match root {
             InspectionTargetRoot::Entity | InspectionTargetRoot::Asset => {
@@ -690,7 +695,12 @@ fn make_target(root: InspectionTargetRoot, first_target: &str, second_target: &s
                         if ParsedPath::parse(third_target).is_err() {
                             None
                         } else {
-                            Some(InspectionTarget::from((root, first_target, second_target, third_target)))
+                            Some(InspectionTarget::from((
+                                root,
+                                first_target,
+                                second_target,
+                                third_target,
+                            )))
                         }
                     } else {
                         Some(InspectionTarget::from((root, first_target, second_target)))
@@ -698,7 +708,7 @@ fn make_target(root: InspectionTargetRoot, first_target: &str, second_target: &s
                 } else {
                     Some(InspectionTarget::from((root, first_target)))
                 }
-            },
+            }
             InspectionTargetRoot::Resource => {
                 if second_target.is_empty().not() {
                     if ParsedPath::parse(second_target).is_err() {
@@ -1084,7 +1094,7 @@ impl ElementWrapper for Inspector {
                 let entity = event.entity();
                 if let Some((mut entity, reset_headers)) = commands.get_entity(entity).zip(reset_headers.get(entity).ok()) {
                     if show_targeting.get() {
-                        if let Some(target) = make_target(event.event().0, &*first_target.lock_ref(), &*second_target.lock_ref(), &*third_target.lock_ref()) {
+                        if let Some(target) = make_target(event.event().0, &first_target.lock_ref(), &second_target.lock_ref(), &third_target.lock_ref()) {
                             entity.try_insert(target);
                         }
                     }
@@ -1104,7 +1114,7 @@ impl ElementWrapper for Inspector {
                     let second_target = second_target.signal_cloned().dedupe_cloned(),
                     let third_target = third_target.signal_cloned().dedupe_cloned() => {
                         if first_target.is_empty().not() {
-                            make_target(root, &first_target, &second_target, &third_target)
+                            make_target(root, first_target, second_target, third_target)
                         } else {
                             // this taken care of by the root collapsing signal above, which is sensitive to viewport shifting as other roots are collapsed; doing this here would not be
                             // Some(InspectionTarget::from(root))
@@ -3088,13 +3098,18 @@ struct CheckInspectionTargets;
 struct OnExpandedCheckChildren;
 
 fn on_expanded_check_children(
-    on_expanded_check_childrens: Query<Entity, (With<Expanded>, With<OnExpandedCheckChildren>)>, childrens: Query<&Children>, mut commands: Commands
+    on_expanded_check_childrens: Query<Entity, (With<Expanded>, With<OnExpandedCheckChildren>)>,
+    childrens: Query<&Children>,
+    mut commands: Commands,
 ) {
     for entity in on_expanded_check_childrens.iter() {
         // TODO: use relations to safely get the entity's component children
         if let Some(&child) = i_born(entity, &childrens, 1) {
             if let Ok(children) = childrens.get(child) {
-                commands.trigger_targets(CheckInspectionTargets, children.iter().copied().collect::<Vec<_>>());
+                commands.trigger_targets(
+                    CheckInspectionTargets,
+                    children.iter().copied().collect::<Vec<_>>(),
+                );
                 if let Some(mut entity) = commands.get_entity(entity) {
                     entity.remove::<OnExpandedCheckChildren>();
                 }
