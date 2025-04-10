@@ -66,6 +66,8 @@ use strum::{Display, EnumIter, IntoEnumIterator};
 use super::{defaults::*, globals::*, reflect::*, style::*, utils::*, widgets::*};
 use crate::{impl_syncers, signal_or};
 
+// TODO: collapsing is still broken, target some resource field and then rapidly switch between roots
+
 // TODO: implement frontend for at least all ui node types; how abt char, str, unit ? for unit, see (resources, Time, .context), should just be a tooltip
 // TODO: dropdown z index is greater than headers so it appears above them when scrolling up
 // TODO: counters for haalka and aalo systems with tooltips saying they can't be expanded because that would cause infinite recursion
@@ -321,14 +323,13 @@ pub fn trigger_double_click<Disabled: Component>(raw_el: RawHaalkaEl) -> RawHaal
     )
 }
 
-// TODO: impl IntoObserverSystem not working here ?
-pub fn scroll_to_header_on_birth(
-    remove_target: bool,
-) -> impl Fn(Trigger<Born>, Query<&Children>, MaybeScrollToHeaderRoot, Commands) {
-    move |event: Trigger<Born>,
-          childrens: Query<&Children>,
-          mut maybe_scroll_to_header_root: MaybeScrollToHeaderRoot,
-          mut commands: Commands| {
+pub fn scroll_to_header_on_birth(el: RawHaalkaEl) -> RawHaalkaEl {
+    el.observe(|
+        event: Trigger<Born>,
+        childrens: Query<&Children>,
+        mut maybe_scroll_to_header_root: MaybeScrollToHeaderRoot,
+        mut commands: Commands|
+    {
         let entity = event.entity();
         // TODO: use relations to safely get the header element
         if let Some(&header_entity) = i_born(entity, &childrens, 0) {
@@ -340,12 +341,9 @@ pub fn scroll_to_header_on_birth(
                     entity.remove::<WaitForBirth>();
                 }
             }
-            // TODO: establish conditions for removal
-            if remove_target {
-                commands.trigger(RemoveTarget { from: entity });
-            }
+            commands.trigger(RemoveTarget { from: entity });
         }
-    }
+    })
 }
 
 #[derive(Component)]
@@ -651,6 +649,9 @@ impl Event for RootCollapsed {
 #[derive(Event, Clone, Copy)]
 pub struct ScrollToRoot(InspectionTargetRoot);
 
+#[derive(Component)]
+struct ResetHeaders(Vec<Entity>);
+
 const PARSED_PATH_PLACEHOLDER: &str = "`ParsedPath` string e.g. \".bar#0.1[2].0\"";
 
 fn listen_to_expanded_component(
@@ -678,6 +679,41 @@ fn make_matcher_and_atom(search: &str) -> (Matcher, Pattern) {
 
 fn atom_score(matcher: &mut Matcher, atom: &Pattern, name: &str) -> Option<u32> {
     atom.score(nucleo_matcher::Utf32String::from(name).slice(..), matcher)
+}
+
+fn make_target(root: InspectionTargetRoot, first_target: &str, second_target: &str, third_target: &str) -> Option<InspectionTarget> {
+    if first_target.is_empty().not() {
+        match root {
+            InspectionTargetRoot::Entity | InspectionTargetRoot::Asset => {
+                if second_target.is_empty().not() {
+                    if third_target.is_empty().not() {
+                        if ParsedPath::parse(third_target).is_err() {
+                            None
+                        } else {
+                            Some(InspectionTarget::from((root, first_target, second_target, third_target)))
+                        }
+                    } else {
+                        Some(InspectionTarget::from((root, first_target, second_target)))
+                    }
+                } else {
+                    Some(InspectionTarget::from((root, first_target)))
+                }
+            },
+            InspectionTargetRoot::Resource => {
+                if second_target.is_empty().not() {
+                    if ParsedPath::parse(second_target).is_err() {
+                        None
+                    } else {
+                        Some(InspectionTarget::from((root, first_target, second_target)))
+                    }
+                } else {
+                    Some(InspectionTarget::from((root, first_target)))
+                }
+            }
+        }
+    } else {
+        Some(InspectionTarget::from(root))
+    }
 }
 
 impl ElementWrapper for Inspector {
@@ -911,7 +947,7 @@ impl ElementWrapper for Inspector {
                 let camera = default_ui_camera_option.as_deref().copied().or_else(|| camera_2ds.iter().next()).or_else(|| camera_3ds.iter().next()).unwrap_or_else(|| commands.spawn(Camera2d).id());
                 if let Some(root) = parents.iter_ancestors(entity).last() {
                     if let Some(mut entity) = commands.get_entity(root) {
-                        entity.insert((UiRoot, TargetCamera(camera)));
+                        entity.try_insert((UiRoot, TargetCamera(camera)));
                     }
                 }
             })
@@ -941,6 +977,7 @@ impl ElementWrapper for Inspector {
                 | {
                     if let Some(root) = root_option {
                         let mut roots = vec![];
+                        let mut reset_headers = vec![];
                         let mut collapse_and_push_root_if_expanded = |entity: Entity, header_datas: &Query<&HeaderData>, root: InspectionTargetRoot| {
                             if let Ok(HeaderData { expanded, .. }) = header_datas.get(entity) {
                                 let mut lock = expanded.lock_mut();
@@ -950,63 +987,70 @@ impl ElementWrapper for Inspector {
                                 }
                             }
                         };
-                        for descendent in childrens.iter_descendants(entity) {
+                        for descendant in childrens.iter_descendants(entity) {
                             match root {
                                 InspectionTargetRoot::Entity => {
-                                    if resources_headers.contains(descendent) {
+                                    if resources_headers.contains(descendant) {
                                         collapse_and_push_root_if_expanded(
-                                            descendent,
+                                            descendant,
                                             &header_datas,
                                             InspectionTargetRoot::Resource
                                         );
+                                        reset_headers.push(descendant);
                                     }
-                                    if assets_headers.contains(descendent) {
+                                    if assets_headers.contains(descendant) {
                                         collapse_and_push_root_if_expanded(
-                                            descendent,
+                                            descendant,
                                             &header_datas,
                                             InspectionTargetRoot::Asset
                                         );
+                                        reset_headers.push(descendant);
                                     }
                                 },
                                 InspectionTargetRoot::Resource => {
-                                    if assets_headers.contains(descendent) {
+                                    if assets_headers.contains(descendant) {
                                         collapse_and_push_root_if_expanded(
-                                            descendent,
+                                            descendant,
                                             &header_datas,
                                             InspectionTargetRoot::Asset
                                         );
+                                        reset_headers.push(descendant);
                                     }
-                                    if entities_headers.contains(descendent) {
+                                    if entities_headers.contains(descendant) {
                                         collapse_and_push_root_if_expanded(
-                                            descendent,
+                                            descendant,
                                             &header_datas,
                                             InspectionTargetRoot::Entity
                                         );
+                                        reset_headers.push(descendant);
                                     }
                                 },
                                 InspectionTargetRoot::Asset => {
-                                    if entities_headers.contains(descendent) {
+                                    if entities_headers.contains(descendant) {
                                         collapse_and_push_root_if_expanded(
-                                            descendent,
+                                            descendant,
                                             &header_datas,
                                             InspectionTargetRoot::Entity
                                         );
+                                        reset_headers.push(descendant);
                                     }
-                                    if resources_headers.contains(descendent) {
+                                    if resources_headers.contains(descendant) {
                                         collapse_and_push_root_if_expanded(
-                                            descendent,
+                                            descendant,
                                             &header_datas,
                                             InspectionTargetRoot::Resource
                                         );
+                                        reset_headers.push(descendant);
                                     }
                                 }
                             }
                         }
                         if let Some(mut entity) = commands.get_entity(entity) {
                             if roots.is_empty().not() {
-                                entity.insert((
+                                entity.try_insert((
                                     WaitForRootsCollapsed(HashSet::from_iter(roots)),
-                                    ScrollToRoot(root)
+                                    ScrollToRoot(root),
+                                    ResetHeaders(reset_headers),
                                 ));
                             } else {
                                 entity.trigger(ScrollToRoot(root));
@@ -1036,11 +1080,23 @@ impl ElementWrapper for Inspector {
                     }
                 }
             })
-            .observe(|event: Trigger<ScrollToRoot>, mut commands: Commands| {
-                if let Some(mut entity) = commands.get_entity(event.entity()) {
-                    entity.insert(InspectionTarget::from(event.event().0));
+            .observe(clone!((first_target, second_target, third_target) move |event: Trigger<ScrollToRoot>, reset_headers: Query<&ResetHeaders>, childrens: Query<&Children>, mut nodes: Query<&mut Node>, mut commands: Commands| {
+                let entity = event.entity();
+                if let Some((mut entity, reset_headers)) = commands.get_entity(entity).zip(reset_headers.get(entity).ok()) {
+                    if show_targeting.get() {
+                        if let Some(target) = make_target(event.event().0, &*first_target.lock_ref(), &*second_target.lock_ref(), &*third_target.lock_ref()) {
+                            entity.try_insert(target);
+                        }
+                    }
+                    for &entity in &reset_headers.0 {
+                        if let Some(&header) = i_born(entity, &childrens, 0) {
+                            if let Ok(mut node) = nodes.get_mut(header) {
+                                node.top = Val::Px(0.);
+                            }
+                        }
+                    }
                 }
-            })
+            }))
             .on_signal_with_entity(
                 map_ref! {
                     let &root = targeting_target_root.signal(),
@@ -1048,34 +1104,7 @@ impl ElementWrapper for Inspector {
                     let second_target = second_target.signal_cloned().dedupe_cloned(),
                     let third_target = third_target.signal_cloned().dedupe_cloned() => {
                         if first_target.is_empty().not() {
-                            match root {
-                                InspectionTargetRoot::Entity | InspectionTargetRoot::Asset => {
-                                    if second_target.is_empty().not() {
-                                        if third_target.is_empty().not() {
-                                            if ParsedPath::parse(third_target).is_err() {
-                                                None
-                                            } else {
-                                                Some(InspectionTarget::from((root, first_target.as_str(), second_target.as_str(), third_target.as_str())))
-                                            }
-                                        } else {
-                                            Some(InspectionTarget::from((root, first_target.as_str(), second_target.as_str())))
-                                        }
-                                    } else {
-                                        Some(InspectionTarget::from((root, first_target.as_str())))
-                                    }
-                                },
-                                InspectionTargetRoot::Resource => {
-                                    if second_target.is_empty().not() {
-                                        if ParsedPath::parse(second_target).is_err() {
-                                            None
-                                        } else {
-                                            Some(InspectionTarget::from((root, first_target.as_str(), second_target.as_str())))
-                                        }
-                                    } else {
-                                        Some(InspectionTarget::from((root, first_target.as_str())))
-                                    }
-                                }
-                            }
+                            make_target(root, &first_target, &second_target, &third_target)
                         } else {
                             // this taken care of by the root collapsing signal above, which is sensitive to viewport shifting as other roots are collapsed; doing this here would not be
                             // Some(InspectionTarget::from(root))
@@ -1297,10 +1326,11 @@ impl ElementWrapper for Inspector {
                                 let entity = event.entity();
                                 if let Some(inspector) = inspector_ancestor.get(entity) {
                                     if let Some((mut entity, &PinnedHeaders(pinned_headers))) = commands.get_entity(inspector).zip(pinned_headers.get(entity).ok()) {
-                                        entity.insert(GlobalZIndex(z_order("inspector") - 1 - pinned_headers as i32 * 2));
+                                        entity.try_insert(GlobalZIndex(z_order("inspector") - 1 - pinned_headers as i32 * 2));
                                     }
                                 }
                             })
+                            // TODO: on pinned headers remove should be handled
                     }))
                     .apply(border_radius_style(BoxCorner::TOP, border_radius.signal()))
                     .apply(border_color_style(border_color.signal()))
@@ -2720,7 +2750,7 @@ impl ElementWrapper for MultiFieldElement {
                     }
                 }
             }))
-            .observe(scroll_to_header_on_birth(false))
+            .apply(scroll_to_header_on_birth)
             .on_spawn_with_system(|In(entity), mut commands: Commands| commands.trigger_targets(CheckInspectionTargets, entity));
             match &data {
                 MultiFieldData::Entity { data: EntityData { components, .. }, .. }  => {
@@ -3054,6 +3084,25 @@ fn field_header(
 #[derive(Event)]
 struct CheckInspectionTargets;
 
+#[derive(Component)]
+struct OnExpandedCheckChildren;
+
+fn on_expanded_check_children(
+    on_expanded_check_childrens: Query<Entity, (With<Expanded>, With<OnExpandedCheckChildren>)>, childrens: Query<&Children>, mut commands: Commands
+) {
+    for entity in on_expanded_check_childrens.iter() {
+        // TODO: use relations to safely get the entity's component children
+        if let Some(&child) = i_born(entity, &childrens, 1) {
+            if let Ok(children) = childrens.get(child) {
+                commands.trigger_targets(CheckInspectionTargets, children.iter().copied().collect::<Vec<_>>());
+                if let Some(mut entity) = commands.get_entity(entity) {
+                    entity.remove::<OnExpandedCheckChildren>();
+                }
+            }
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn object_type_header_with_count(
     root: InspectionTargetRoot,
@@ -3083,36 +3132,34 @@ fn object_type_header_with_count(
             commands.trigger_targets(RootCollapsed(root), event.entity());
         })
         .observe(clone!((expanded) move |
-                event: Trigger<CheckInspectionTargets>,
-                parents: Query<&Parent>,
-                childrens: Query<&Children>,
-                inspection_targets: Query<&InspectionTarget>,
-                mut commands: Commands
-            | {
-                let ui_entity = event.entity();
-                for parent in parents.iter_ancestors(ui_entity) {
-                    if let Ok(target) = inspection_targets.get(parent) {
-                        if target.root == root {
-                            if let Some(mut entity) = commands.get_entity(parent) {
-                                entity.remove::<InspectionTarget>();
-                            }
-                            if let Some(mut entity) = commands.get_entity(ui_entity) {
-                                entity.try_insert(target.clone());
-                                entity.try_insert(WaitForBirth { ceiling: None });
-                                // TODO: use relations to safely get the entity's component children
-                                if let Some(&child) = i_born(ui_entity, &childrens, 1) {
-                                    if let Ok(children) = childrens.get(child) {
-                                        commands.trigger_targets(CheckInspectionTargets, children.iter().copied().collect::<Vec<_>>());
-                                    }
-                                }
-                            }
-                            expanded.set_neq(true);
-                            return
+            event: Trigger<CheckInspectionTargets>,
+            parents: Query<&Parent>,
+            inspection_targets: Query<&InspectionTarget>,
+            childrens: Query<&Children>,
+            mut commands: Commands
+        | {
+            let ui_entity = event.entity();
+            for parent in parents.iter_ancestors(ui_entity) {
+                if let Ok(target) = inspection_targets.get(parent) {
+                    if target.root == root {
+                        if let Some(mut entity) = commands.get_entity(parent) {
+                            entity.remove::<InspectionTarget>();
                         }
+                        if let Some(mut entity) = commands.get_entity(ui_entity) {
+                            entity.try_insert((target.clone(), WaitForBirth { ceiling: None }));
+                        }
+                        if let Some(&child) = i_born(ui_entity, &childrens, 1) {
+                            if let Ok(children) = childrens.get(child) {
+                                commands.trigger_targets(CheckInspectionTargets, children.iter().copied().collect::<Vec<_>>());
+                            }
+                        }
+                        expanded.set_neq(true);
+                        return
                     }
                 }
-            }))
-        .observe(scroll_to_header_on_birth(false))
+            }
+        }))
+        .apply(scroll_to_header_on_birth)
         .on_spawn_with_system(|In(entity), mut commands: Commands| commands.trigger_targets(CheckInspectionTargets, entity))
     })
     .item(
@@ -3353,7 +3400,7 @@ impl FieldElement {
                         }
                     }
                 }))
-                .observe(scroll_to_header_on_birth(true))
+                .apply(scroll_to_header_on_birth)
                 .on_spawn_with_system(|In(entity), mut commands: Commands| commands.trigger_targets(CheckInspectionTargets, entity))
                 .on_spawn(clone!((viewability, node_type, type_path, enum_data_option, field_type) move |world, ui_entity| {
                     // TODO: more intelligent way to get this height? waiting for node to reach "full size" is pretty cringe
@@ -5402,7 +5449,7 @@ impl<'w, 's> HeaderPinner<'w, 's> {
                                 pin_last.push(pinned.clone());
                                 i += 1;
                                 if let Some(mut entity) = self.commands.get_entity(header) {
-                                    entity.insert(GlobalZIndex(z_order("header") - i));
+                                    entity.try_insert(GlobalZIndex(z_order("header") - i));
                                 }
                             }
                         } else {
@@ -6509,6 +6556,7 @@ pub(super) fn plugin(app: &mut App) {
                     resource_exists::<OnPointerUpHandlers>
                         .and(resource_changed::<ButtonInput<MouseButton>>),
                 ),
+                on_expanded_check_children.run_if(any_with_component::<OnExpandedCheckChildren>),
             ),
         )
         .init_resource::<FieldPathCache>()
