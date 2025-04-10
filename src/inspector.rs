@@ -1090,16 +1090,21 @@ impl ElementWrapper for Inspector {
             })
             .observe(clone!((first_target, second_target, third_target) move |event: Trigger<ScrollToRoot>, reset_headers: Query<&ResetHeaders>, childrens: Query<&Children>, mut nodes: Query<&mut Node>, mut commands: Commands| {
                 let entity = event.entity();
-                if let Some((mut entity, reset_headers)) = commands.get_entity(entity).zip(reset_headers.get(entity).ok()) {
+                if let Some(mut entity) = commands.get_entity(entity) {
+                    let root = event.event().0;
                     if show_targeting.get() {
-                        if let Some(target) = make_target(event.event().0, &first_target.lock_ref(), &second_target.lock_ref(), &third_target.lock_ref()) {
+                        if let Some(target) = make_target(root, &first_target.lock_ref(), &second_target.lock_ref(), &third_target.lock_ref()) {
                             entity.try_insert(target);
                         }
+                    } else if show_search.get() {
+                        entity.try_insert(InspectionTarget::from(root));
                     }
-                    for &entity in &reset_headers.0 {
-                        if let Some(&header) = i_born(entity, &childrens, 0) {
-                            if let Ok(mut node) = nodes.get_mut(header) {
-                                node.top = Val::Px(0.);
+                    if let Ok(reset_headers) = reset_headers.get(entity.id()) {
+                        for &entity in &reset_headers.0 {
+                            if let Some(&header) = i_born(entity, &childrens, 0) {
+                                if let Ok(mut node) = nodes.get_mut(header) {
+                                    node.top = Val::Px(0.);
+                                }
                             }
                         }
                     }
