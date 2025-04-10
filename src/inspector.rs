@@ -66,8 +66,6 @@ use strum::{Display, EnumIter, IntoEnumIterator};
 use super::{defaults::*, globals::*, reflect::*, style::*, utils::*, widgets::*};
 use crate::{impl_syncers, signal_or};
 
-// TODO: collapsing is still broken, target some resource field and then rapidly switch between roots
-
 // TODO: implement frontend for at least all ui node types; how abt char, str, unit ? for unit, see (resources, Time, .context), should just be a tooltip
 // TODO: dropdown z index is greater than headers so it appears above them when scrolling up
 // TODO: counters for haalka and aalo systems with tooltips saying they can't be expanded because that would cause infinite recursion
@@ -1109,12 +1107,11 @@ impl ElementWrapper for Inspector {
             }))
             .on_signal_with_entity(
                 map_ref! {
-                    let &root = targeting_target_root.signal(),
                     let first_target = first_target.signal_cloned().dedupe_cloned(),
                     let second_target = second_target.signal_cloned().dedupe_cloned(),
                     let third_target = third_target.signal_cloned().dedupe_cloned() => {
                         if first_target.is_empty().not() {
-                            make_target(root, first_target, second_target, third_target)
+                            make_target(targeting_target_root.get(), first_target, second_target, third_target)
                         } else {
                             // this taken care of by the root collapsing signal above, which is sensitive to viewport shifting as other roots are collapsed; doing this here would not be
                             // Some(InspectionTarget::from(root))
@@ -2058,7 +2055,6 @@ impl ElementWrapper for Inspector {
             }))
         )
         // TODO: move these to the inspector once the resize border wrapper is no longer needed
-        .on_click_with_system(|In((entity, _)), mut commands: Commands| commands.insert_resource(SelectedInspector(entity)))
         .on_click_outside_with_system(|In((entity, _)), selected_inspector_option: Option<Res<SelectedInspector>>, mut commands: Commands| {
             if selected_inspector_option.as_deref().map(Deref::deref).copied() == Some(entity) {
                 commands.remove_resource::<SelectedInspector>();
@@ -2069,6 +2065,7 @@ impl ElementWrapper for Inspector {
             .insert(InspectorMarker)
             .insert(TooltipHolder(tooltip.clone()))
             .insert(InspectorBloodline)
+            .on_event_with_system::<Pointer<Down>, _>(|In((entity, _)), mut commands: Commands| commands.insert_resource(SelectedInspector(entity)))
             .observe(|event: Trigger<SizeReached>, childrens: Query<&Children>, inspector_columns: Query<&InspectorColumn>, scroll_positions: Query<&ScrollPosition>, previous_scroll_positions: Query<&PreviousScrollPosition>, mut commands: Commands| {
                 let entity = event.entity();
                 // TODO: use relations
@@ -3093,30 +3090,6 @@ fn field_header(
 
 #[derive(Event)]
 struct CheckInspectionTargets;
-
-#[derive(Component)]
-struct OnExpandedCheckChildren;
-
-fn on_expanded_check_children(
-    on_expanded_check_childrens: Query<Entity, (With<Expanded>, With<OnExpandedCheckChildren>)>,
-    childrens: Query<&Children>,
-    mut commands: Commands,
-) {
-    for entity in on_expanded_check_childrens.iter() {
-        // TODO: use relations to safely get the entity's component children
-        if let Some(&child) = i_born(entity, &childrens, 1) {
-            if let Ok(children) = childrens.get(child) {
-                commands.trigger_targets(
-                    CheckInspectionTargets,
-                    children.iter().copied().collect::<Vec<_>>(),
-                );
-                if let Some(mut entity) = commands.get_entity(entity) {
-                    entity.remove::<OnExpandedCheckChildren>();
-                }
-            }
-        }
-    }
-}
 
 #[allow(clippy::too_many_arguments)]
 fn object_type_header_with_count(
@@ -6571,7 +6544,6 @@ pub(super) fn plugin(app: &mut App) {
                     resource_exists::<OnPointerUpHandlers>
                         .and(resource_changed::<ButtonInput<MouseButton>>),
                 ),
-                on_expanded_check_children.run_if(any_with_component::<OnExpandedCheckChildren>),
             ),
         )
         .init_resource::<FieldPathCache>()

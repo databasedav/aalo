@@ -8,9 +8,16 @@ the format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 - newly added objects respect active search
 
+### changed
+
+- increase default scroll pixels from 15 to 20
+
 ### fixed
 
-- clicking resize borders selects inspector
+- clicking/downing resize borders selects inspector
+- flipping between inspection target roots does not leave root headers in wacky places
+- flipping between inspection target roots does not result in partially scrolled root
+- inspection targets are correctly retargeted when flipping through roots
 
 # 0.0.1 (2025-04-09)
 
