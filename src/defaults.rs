@@ -19,4 +19,4 @@ pub const DEFAULT_UNHIGHLIGHTED_COLOR: Color = Color::srgb(150. / 255., 150. / 2
 pub const DEFAULT_BORDER_COLOR: Color = Color::srgb(56. / 255., 56. / 255., 56. / 255.);
 pub const DEFAULT_ERROR_COLOR: Color = Color::srgb(0.5019608, 0.0, 0.0);
 
-pub const DEFAULT_SCROLL_PIXELS: f32 = 15.;
+pub const DEFAULT_SCROLL_PIXELS: f32 = 20.;
