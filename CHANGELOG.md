@@ -4,6 +4,8 @@ the format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## unreleased
 
+# 0.0.3 (2025-04-09)
+
 ### fixed
 
 - setting search inspector target root snaps to root header
