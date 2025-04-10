@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en" style="height: 100%; width: 100%; margin: 0; padding: 0; border: 0; background-color: #2b2c2f;">
+
+<head>
+    <meta charset="utf-8" />
+    <title>aalo world example</title>
+    
+<script type="module">
+import init, * as bindings from './aalo-e17c7c5602e35d88.js';
+const wasm = await init({ module_or_path: './aalo-e17c7c5602e35d88_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script>
+<link rel="modulepreload" href="./aalo-e17c7c5602e35d88.js" crossorigin="anonymous" integrity="sha384-AVY4r6l5NajJAz4WEf2YRPltq6QvUaCInJTAr1ir7VXgxMk/jetju2MCpknm4u9Q"><link rel="preload" href="./aalo-e17c7c5602e35d88_bg.wasm" crossorigin="anonymous" integrity="sha384-Hatt3h+iUmv/m8Ds2x3FIhZA0FDKV10Sy33Pjf/zQaD1k6e19+4a46zZFZVVhsqM" as="fetch" type="application/wasm"></head>
+
+<body style="height: 100%; width: 100%; margin: 0; padding: 0; border: 0;">
+    <div id="game" style="height: 100%; width: 100%; margin: 0; padding: 0; border: 0; display: flex;">
+        <canvas id="bevy">
+            js and canvas support is required
+        </canvas>
+    </div>
+</body>
+
+</html>
