@@ -164,5 +164,8 @@ impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {
 
 pub mod prelude {
     pub use super::AaloPlugin;
-    pub use crate::inspector::{register_frontend, FieldListener, Inspector, TargetField};
+    pub use crate::{
+        inspector::{register_frontend, FieldListener, Inspector, TargetField},
+        utils::InspectorMarker,
+    };
 }

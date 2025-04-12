@@ -441,6 +441,7 @@ fn maybe_spawn_aalo_text_camera(mut world: DeferredWorld, _: Entity, _: Componen
 )]
 struct AaloText(Entity);
 
+#[allow(clippy::type_complexity)]
 fn forward_aalo_text_visibility(
     data: Query<(Entity, &Visibility), (With<InspectorMarker>, Changed<Visibility>)>,
     childrens: Query<&Children>,

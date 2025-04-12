@@ -4,6 +4,15 @@ the format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## unreleased
 
+### added
+
+- visibility toggle in world example
+
+### fixed
+
+- nested entity fields (e.g. of `Children`) get populated with name
+- toggling inspector visibility propagates to aalo text
+
 # 0.0.3 (2025-04-09)
 
 ### fixed

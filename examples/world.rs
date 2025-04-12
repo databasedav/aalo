@@ -3,7 +3,7 @@
 mod utils;
 use utils::*;
 
-use aalo::{prelude::*, utils::InspectorMarker};
+use aalo::prelude::*;
 use bevy::prelude::*;
 
 fn main() {
