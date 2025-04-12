@@ -70,11 +70,12 @@ use crate::{impl_syncers, signal_or};
 // TODO: dropdown z index is greater than headers so it appears above them when scrolling up
 // TODO: counters for haalka and aalo systems with tooltips saying they can't be expanded because that would cause infinite recursion
 // TODO: api for only showing certain object types, and only running particular syncers if these settings are such
-// TODO: toggle inspector
+// TODO: toggle inspector (actually spawn/despawn rather than just toggle visibility)
 // TODO: docs
 // TODO: states reflection
 // TODO: show reflect documentation on hover (or right click ?) (see bevy-inspector-egui)
 
+// TODO: unnest Children vector ?
 // TODO: unnamed entities should probably just default to unsorted ?
 // TODO: typing in the searching or targeting box should disable inputs somehow ? (status quo in bevy-inspector-egui is doing nothing)
 // TODO: dragging numeric field doesn't work when number is very big ?
@@ -439,6 +440,24 @@ fn maybe_spawn_aalo_text_camera(mut world: DeferredWorld, _: Entity, _: Componen
     on_remove = aalo_text_on_remove,
 )]
 struct AaloText(Entity);
+
+fn forward_aalo_text_visibility(
+    data: Query<(Entity, &Visibility), (With<InspectorMarker>, Changed<Visibility>)>,
+    childrens: Query<&Children>,
+    aalo_texts: Query<&AaloText>,
+    mut commands: Commands,
+) {
+    for (inspector, &visibility) in data.iter() {
+        // TODO: use relations to identify this faster
+        for descendant in childrens.iter_descendants(inspector) {
+            if let Ok(&AaloText(entity)) = aalo_texts.get(descendant) {
+                if let Some(mut entity) = commands.get_entity(entity) {
+                    entity.insert(visibility);
+                }
+            }
+        }
+    }
+}
 
 // TODO: this isn't frame perfect, especially on low opt build
 fn sync_aalo_text_position(
@@ -4209,15 +4228,17 @@ pub fn entity_field() -> impl Element {
     let name = entity_data.name.clone();
     El::<Node>::new()
         .update_raw_el(clone!((name, entity_holder) move |raw_el| {
-            raw_el.on_spawn(move |world, entity| {
-                let mut system_state = SystemState::<Query<NameOrEntity>>::new(world);
-                let debug_names = system_state.get(world);
-                if let Some(debug_name) =
-                    debug_names.get(entity).ok().and_then(|name| name.name)
-                {
-                    name.set(Some(debug_name.to_string()));
+            raw_el
+            .on_signal_with_system(
+                entity_holder.signal(),
+                move |In((_, entity_option)), debug_names: Query<NameOrEntity>| {
+                    if let Some(entity) = entity_option {
+                        if let Ok(Some(debug_name)) = debug_names.get(entity).map(|name| name.name) {
+                            name.set(Some(debug_name.to_string()));
+                        }
+                    }
                 }
-            })
+            )
             .with_entity(move |mut entity| {
                 let handler = entity.world_scope(|world| {
                     register_system(world, move |In(reflect): In<Box<dyn PartialReflect>>| {
@@ -6532,7 +6553,7 @@ pub(super) fn plugin(app: &mut App) {
                 sync_asset_handles.run_if(any_with_component::<AssetRoot>),
                 sync_ui.run_if(any_with_component::<FieldListener>),
                 (
-                    unfocus_text_input_on_keys,
+                    unfocus_text_input_on_keys.run_if(resource_changed::<ButtonInput<KeyCode>>),
                     left_align_editors.run_if(resource_removed::<FocusedTextInput>),
                 )
                     .chain(),
@@ -6548,6 +6569,7 @@ pub(super) fn plugin(app: &mut App) {
                 wait_for_size.run_if(any_with_component::<WaitForSize>),
                 update_light_rays_material.run_if(any_with_component::<LightRays>),
                 sync_aalo_text_position.run_if(any_with_component::<AaloTextCamera>),
+                forward_aalo_text_visibility.run_if(any_with_component::<AaloText>),
                 wait_until_non_zero_transform
                     .run_if(any_with_component::<WaitUntilNonZeroTransform>),
                 listen_for_pointer_release.run_if(

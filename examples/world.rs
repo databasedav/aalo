@@ -3,7 +3,7 @@
 mod utils;
 use utils::*;
 
-use aalo::prelude::*;
+use aalo::{prelude::*, utils::InspectorMarker};
 use bevy::prelude::*;
 
 fn main() {
@@ -13,6 +13,10 @@ fn main() {
             inspector.jump_to(("entity", "my cube", "transform", ".translation"))
         }))
         .add_systems(Startup, setup)
+        .add_systems(
+            Update,
+            toggle_visibility.run_if(resource_changed::<ButtonInput<KeyCode>>),
+        )
         .run();
 }
 
@@ -44,4 +48,20 @@ fn setup(
         Camera3d::default(),
         Transform::from_xyz(-2.0, 2.5, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
+}
+
+fn toggle_visibility(
+    inspector: Single<Entity, With<InspectorMarker>>,
+    visibilities: Query<&Visibility>,
+    input: Res<ButtonInput<KeyCode>>,
+    mut commands: Commands,
+) {
+    if input.just_pressed(KeyCode::Escape) {
+        if let Ok(visibility) = visibilities.get(*inspector) {
+            commands.entity(*inspector).insert(match visibility {
+                Visibility::Hidden => Visibility::Visible,
+                _ => Visibility::Hidden,
+            });
+        }
+    }
 }
