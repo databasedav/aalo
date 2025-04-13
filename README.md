@@ -8,7 +8,7 @@
 in bengali, aalo means "light" (i.e. photons), not to be confused with haalka !
 ```
 
-[aalo](https://github.com/databasedav/aalo) is a [haalka](https://github.com/databasedav/haalka) port (in progress) of [bevy-inspector-egui](https://github.com/jakobhellermann/bevy-inspector-egui).
+[aalo](https://github.com/databasedav/aalo) is a `bevy_ui`-native inspector built with [haalka](https://github.com/databasedav/haalka) which aims to port much of the behavior of [bevy-inspector-egui](https://github.com/jakobhellermann/bevy-inspector-egui) to `bevy_ui`
 
 ## setup
 
