@@ -185,7 +185,7 @@ pub struct Inspector {
     border_color: Mutable<Color>,
     scroll_pixels: Mutable<f32>,
     header: Mutable<Option<String>>,
-    unnest_children: bool,
+    flatten_descendants: bool,
 }
 
 #[derive(Component)]
@@ -777,10 +777,10 @@ impl ElementWrapper for Inspector {
             highlighted_color,
             unhighlighted_color,
             header,
-            unnest_children,
+            flatten_descendants,
             ..
         } = self;
-        let unnest_children = Mutable::new(unnest_children);
+        let flatten_descendants = Mutable::new(flatten_descendants);
         let viewport_height = Mutable::new(0.);
         let inspector_hovered = Mutable::new(false);
         let scrollbar_height_option: Mutable<Option<f32>> = Mutable::new(None);
@@ -1427,8 +1427,8 @@ impl ElementWrapper for Inspector {
                         .update_raw_el(move |raw_el| {
                             raw_el
                             .insert(EntitiesHeader)
-                            .component_signal::<SyncEntities, _>(unnest_children.signal().map_true(default))
-                            .component_signal::<SyncOrphanEntities, _>(unnest_children.signal().map_false(default))
+                            .component_signal::<SyncEntities, _>(flatten_descendants.signal().map_true(default))
+                            .component_signal::<SyncOrphanEntities, _>(flatten_descendants.signal().map_false(default))
                         })
                         .item_signal(
                             expanded.signal().dedupe().map_true(clone!((padding, border_width, hovered, tertiary_background_color, border_color, font_size, primary_background_color, highlighted_color, unhighlighted_color, row_gap, secondary_background_color, column_gap) move || {
@@ -2204,7 +2204,7 @@ impl Inspector {
             border_color: GLOBAL_BORDER_COLOR.clone(),
             scroll_pixels: GLOBAL_SCROLL_PIXELS.clone(),
             header: Mutable::new(None),
-            unnest_children: false,
+            flatten_descendants: false,
         }
     }
 
@@ -2283,8 +2283,8 @@ impl Inspector {
         self
     }
 
-    pub fn unnest_children(mut self) -> Self {
-        self.unnest_children = true;
+    pub fn flatten_descendants(mut self) -> Self {
+        self.flatten_descendants = true;
         self
     }
 

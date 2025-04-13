@@ -19,7 +19,7 @@ use inspector::*;
 struct WorldInspectorConfig {
     inspector_transformers:
         Mutex<Vec<Box<dyn FnOnce(Inspector) -> Inspector + Send + Sync + 'static>>>,
-    unnest_children: bool,
+    flatten_descendants: bool,
 }
 
 // from MoonZoon https://github.com/MoonZoon/MoonZoon/blob/fc73b0d90bf39be72e70fdcab4f319ea5b8e6cfc/crates/zoon/src/lib.rs#L177-L193
@@ -61,19 +61,19 @@ impl<WorldFlag> AaloPlugin<WorldFlag> {
     {
         self.world_inspector_config = Some(WorldInspectorConfig {
             inspector_transformers: Mutex::new(Vec::new()),
-            unnest_children: false,
+            flatten_descendants: false,
         });
         self.into_type()
     }
 
-    pub fn unnest_children(mut self) -> AaloPlugin<WorldFlagSet>
+    pub fn flatten_descendants(mut self) -> AaloPlugin<WorldFlagSet>
     where
         WorldFlag: FlagSet,
     {
         self.world_inspector_config
             .as_mut()
             .unwrap()
-            .unnest_children = true;
+            .flatten_descendants = true;
         self.into_type()
     }
 
@@ -119,7 +119,7 @@ impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {
                         .drain(..)
                         .collect(),
                 );
-            let unnest_children = world_inspector_config.unnest_children;
+            let flatten_descendants = world_inspector_config.flatten_descendants;
             let transformers = Arc::new(transformers);
             app.add_systems(
                 PostStartup,
@@ -132,9 +132,9 @@ impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {
                             .cursor(CursorIcon::System(SystemCursorIcon::Default))
                             .child({
                                 let mut inspector = Inspector::new();
-                                if unnest_children {
+                                if flatten_descendants {
                                     inspector =
-                                        inspector.entities(ENTITIES.clone()).unnest_children();
+                                        inspector.entities(ENTITIES.clone()).flatten_descendants();
                                 } else {
                                     inspector = inspector.entities(ORPHAN_ENTITIES.clone());
                                 }
