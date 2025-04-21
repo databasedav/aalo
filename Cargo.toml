@@ -43,9 +43,6 @@ strum = { version = "0.26", features = ["derive"] }
 num = "0.4"
 bevy_rich_text3d = { version = "0.2", default-features = false, features = ["2d"] }
 
-[patch.crates-io]
-haalka = { path = "../haalka" }
-
 [features]
 deployed_wasm_example = []
 
