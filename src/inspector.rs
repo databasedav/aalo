@@ -269,7 +269,7 @@ fn search_input_shared_properties(
             )
             .child(
                 El::<Node>::new()
-                .visibility_signal(text.signal_ref(String::is_empty).dedupe().map(|visible| if visible { Visibility::Visible } else { Visibility::Hidden }))
+                .visibility_signal(text.signal_ref(String::is_empty).dedupe().map(|visible| if visible { Visibility::Inherited } else { Visibility::Hidden }))
                 // TODO: Stack would make more sense but it's being super annoying ...
                 .with_node(|mut node| node.position_type = PositionType::Absolute)
                 .apply(padding_style(BoxEdge::ALL, padding.signal()))
@@ -644,7 +644,7 @@ fn inspection_target_root_selector(
     .layer(
         El::<Node>::new()
         // .align(Align::new().bottom())
-        .visibility_signal(signal_or!(target_root_focused.signal(), hovered.signal()).dedupe().map(|show| if show { Visibility::Visible } else { Visibility::Hidden }))
+        .visibility_signal(signal_or!(target_root_focused.signal(), hovered.signal()).dedupe().map(|show| if show { Visibility::Inherited } else { Visibility::Hidden }))
         .on_signal_with_node(border_width.signal(), |mut node, border_width| node.top = Val::Px(border_width))
         .apply(border_color_style(unhighlighted_color.signal()))
         .apply(border_width_style([BoxEdge::Bottom], border_width.signal()))
@@ -1801,8 +1801,9 @@ impl ElementWrapper for Inspector {
                                         always("search"),
                                     )
                                 )
-                                .child_signal(search.signal_ref(String::is_empty).dedupe().apply(signal::not).map_true(clone!((padding, font_size, unhighlighted_color, filtered_count) move || {
+                                .child(
                                     El::<Node>::new()
+                                    .visibility_signal(search.signal_ref(String::is_empty).dedupe().apply(signal::not).map(|visible| if visible { Visibility::Inherited } else { Visibility::Hidden }))
                                     // TODO: Stack would make more sense but it's being super annoying ...
                                     .with_node(|mut node| node.position_type = PositionType::Absolute)
                                     .align(Align::new().right())
@@ -1813,7 +1814,7 @@ impl ElementWrapper for Inspector {
                                         .text_color_signal(unhighlighted_color.signal().map(TextColor))
                                         .text_signal(filtered_count.signal().map(|count| count.to_string()).map(Text))
                                     )
-                                })))
+                                )
                             )
                         )
                         .item(
@@ -2034,7 +2035,7 @@ impl ElementWrapper for Inspector {
                                 let expected_tooltip_height = font_size.get() + padding.get() + border_width.get() * 2. + 3.;  // TODO: where did this 3. come from ?
                                 move_tooltip_to_position.move_(entity, position, Some(expected_tooltip_height));
                                 if let Some(mut entity) = commands.get_entity(entity) {
-                                    entity.try_insert(Visibility::Visible);
+                                    entity.try_insert(Visibility::Inherited);
                                 }
                             }
                         }
