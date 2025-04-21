@@ -123,10 +123,9 @@ impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {
             let transformers = Arc::new(transformers);
             app.add_systems(
                 PostStartup,
-                clone!((transformers) move |mut commands: Commands| {
-                    commands.queue(clone!((transformers) move |world: &mut World| {
+                clone!((transformers) move |world: &mut World| {
                         El::<Node>::new()
-                            // .global_z_index(GlobalZIndex(i32::MIN))
+                            .global_z_index(GlobalZIndex(i32::MIN))
                             .width(Val::Percent(100.))
                             .height(Val::Percent(100.))
                             .cursor(CursorIcon::System(SystemCursorIcon::Default))
@@ -154,8 +153,7 @@ impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {
                                         node.left = Val::Px(20.);
                                     })
                                 })
-                                .spawn(world);
-                    }))
+                            .spawn(world);
                 }),
             );
         }

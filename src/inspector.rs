@@ -2086,10 +2086,7 @@ impl ElementWrapper for Inspector {
                 let root = parents.iter_ancestors(entity).last().unwrap_or(entity);
                 if let Some(mut entity) = commands.get_entity(root) {
                     entity.try_insert((UiRoot, TargetCamera(camera)));
-                    // entity.try_insert(RenderLayers::layer(1));
-                    // entity.try_insert(AALO_TEXT_CAMERA_RENDER_LAYERS.clone());
                     if let Some(render_layers) = render_layers_option {
-                        println!("default ui camera: {}", default_ui_camera_option.is_some());
                         entity.try_insert(render_layers.clone());
                     }
                 }
@@ -5729,7 +5726,7 @@ fn hotkey_forwarder(
             commands.trigger_targets(ShowTargeting, selected_inspector.0);
         }
         if keys.just_pressed(KeyCode::Escape) {
-            // commands.trigger_targets(HideSearch, selected_inspector.0);
+            commands.trigger_targets(HideSearch, selected_inspector.0);
             commands.trigger_targets(HideTargeting, selected_inspector.0);
         }
         if keys.just_pressed(KeyCode::Tab) {

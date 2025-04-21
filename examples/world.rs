@@ -15,7 +15,7 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(
             Update,
-            toggle_visibility.run_if(resource_changed::<ButtonInput<KeyCode>>),
+            toggle_visibility.run_if(any_with_component::<InspectorMarker>.and(resource_changed::<ButtonInput<KeyCode>>)),
         )
         .run();
 }
