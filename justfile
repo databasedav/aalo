@@ -29,7 +29,7 @@ release *extras:
 
 # TODO: https://github.com/release-plz/release-plz/issues/1773
 sign_tag tag:
-  GIT_COMMITTER_DATE="$(git log -1 --format=%aD {{ tag }})" git tag {{ tag }} {{ tag }} -f -s && git push --tags --force
+  GIT_COMMITTER_DATE="$(git log -1 --format=%aD {{ tag }})" git tag {{ tag }} {{ tag }}^{} -f -s && git push --tags --force
 
 # TODO: use an actual list https://github.com/casey/just/issues/2458
 exclude_examples := '"test", "utils"'

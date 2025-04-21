@@ -74,8 +74,8 @@ use crate::{impl_syncers, signal_or};
 // TODO: docs
 // TODO: states reflection
 // TODO: show reflect documentation on hover (or right click ?) (see bevy-inspector-egui)
+// TODO: use remote justfile from haalka + use new nickel package management to reuse all haalka nickels without copying them
 
-// TODO: unnest Children vector ?
 // TODO: unnamed entities should probably just default to unsorted ?
 // TODO: typing in the searching or targeting box should disable inputs somehow ? (status quo in bevy-inspector-egui is doing nothing)
 // TODO: dragging numeric field doesn't work when number is very big ?
@@ -688,7 +688,7 @@ fn make_matcher_and_atom(search: &str) -> (Matcher, Pattern) {
     let matcher = Matcher::new(Config::DEFAULT);
     let atom = Pattern::new(
         search,
-        CaseMatching::Smart,
+        CaseMatching::Ignore,
         Normalization::Smart,
         nucleo_matcher::pattern::AtomKind::Fuzzy,
     );
@@ -964,21 +964,6 @@ impl ElementWrapper for Inspector {
         .update_raw_el(clone!((show_search, show_targeting, first_target, second_target, third_target, search_target_root, targeting_target_root, search) move |raw_el| {
             raw_el
             .hold_tasks([search_task, on_insert_search_filterer_task])
-            .on_spawn_with_system(|
-                In(entity): In<Entity>,
-                default_ui_camera_option: Option<Single<Entity, With<IsDefaultUiCamera>>>,
-                camera_2ds: Query<Entity, With<Camera2d>>,
-                camera_3ds: Query<Entity, With<Camera3d>>,
-                parents: Query<&Parent>,
-                mut commands: Commands,
-            | {
-                let camera = default_ui_camera_option.as_deref().copied().or_else(|| camera_2ds.iter().next()).or_else(|| camera_3ds.iter().next()).unwrap_or_else(|| commands.spawn(Camera2d).id());
-                if let Some(root) = parents.iter_ancestors(entity).last() {
-                    if let Some(mut entity) = commands.get_entity(root) {
-                        entity.try_insert((UiRoot, TargetCamera(camera)));
-                    }
-                }
-            })
             .on_signal_with_system(
                 clone!((search, search_target_root, targeting_target_root) map_ref! {
                     let &show_search = show_search.signal(),
@@ -1816,9 +1801,8 @@ impl ElementWrapper for Inspector {
                                         always("search"),
                                     )
                                 )
-                                .child(
+                                .child_signal(search.signal_ref(String::is_empty).dedupe().apply(signal::not).map_true(clone!((padding, font_size, unhighlighted_color, filtered_count) move || {
                                     El::<Node>::new()
-                                    .visibility_signal(search.signal_ref(String::is_empty).dedupe().apply(signal::not).map(|visible| if visible { Visibility::Visible } else { Visibility::Hidden }))
                                     // TODO: Stack would make more sense but it's being super annoying ...
                                     .with_node(|mut node| node.position_type = PositionType::Absolute)
                                     .align(Align::new().right())
@@ -1829,7 +1813,7 @@ impl ElementWrapper for Inspector {
                                         .text_color_signal(unhighlighted_color.signal().map(TextColor))
                                         .text_signal(filtered_count.signal().map(|count| count.to_string()).map(Text))
                                     )
-                                )
+                                })))
                             )
                         )
                         .item(
@@ -2090,6 +2074,26 @@ impl ElementWrapper for Inspector {
             .insert(InspectorMarker)
             .insert(TooltipHolder(tooltip.clone()))
             .insert(InspectorBloodline)
+            .on_spawn_with_system(|
+                In(entity): In<Entity>,
+                default_ui_camera_option: Option<Single<(Entity, Option<&RenderLayers>), With<IsDefaultUiCamera>>>,
+                camera_2ds: Query<(Entity, Option<&RenderLayers>), With<Camera2d>>,
+                camera_3ds: Query<(Entity, Option<&RenderLayers>), With<Camera3d>>,
+                parents: Query<&Parent>,
+                mut commands: Commands,
+            | {
+                let (camera, render_layers_option) = default_ui_camera_option.as_deref().copied().or_else(|| camera_2ds.iter().next()).or_else(|| camera_3ds.iter().next()).unwrap_or_else(|| (commands.spawn(Camera2d).id(), None));
+                let root = parents.iter_ancestors(entity).last().unwrap_or(entity);
+                if let Some(mut entity) = commands.get_entity(root) {
+                    entity.try_insert((UiRoot, TargetCamera(camera)));
+                    // entity.try_insert(RenderLayers::layer(1));
+                    // entity.try_insert(AALO_TEXT_CAMERA_RENDER_LAYERS.clone());
+                    if let Some(render_layers) = render_layers_option {
+                        println!("default ui camera: {}", default_ui_camera_option.is_some());
+                        entity.try_insert(render_layers.clone());
+                    }
+                }
+            })
             .on_event_with_system::<Pointer<Down>, _>(|In((entity, _)), mut commands: Commands| commands.insert_resource(SelectedInspector(entity)))
             .observe(|event: Trigger<SizeReached>, childrens: Query<&Children>, inspector_columns: Query<&InspectorColumn>, scroll_positions: Query<&ScrollPosition>, previous_scroll_positions: Query<&PreviousScrollPosition>, mut commands: Commands| {
                 let entity = event.entity();
@@ -5725,7 +5729,7 @@ fn hotkey_forwarder(
             commands.trigger_targets(ShowTargeting, selected_inspector.0);
         }
         if keys.just_pressed(KeyCode::Escape) {
-            commands.trigger_targets(HideSearch, selected_inspector.0);
+            // commands.trigger_targets(HideSearch, selected_inspector.0);
             commands.trigger_targets(HideTargeting, selected_inspector.0);
         }
         if keys.just_pressed(KeyCode::Tab) {
