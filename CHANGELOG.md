@@ -4,6 +4,8 @@ the format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## unreleased
 
+# 0.0.5 (2025-04-22)
+
 ### added
 
 - inspector root inherits `RenderLayers` of its `TargetCamera`
