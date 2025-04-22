@@ -22,7 +22,7 @@ fn main() {
             // style::plugin,
             AaloPlugin::new()
                 .world()
-                .unnest_children()
+                .flatten_descendants()
                 .with_inspector(|inspector| {
                     inspector
                         // .header(Some("world inspector".to_string()))

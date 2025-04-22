@@ -15,7 +15,9 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(
             Update,
-            toggle_visibility.run_if(resource_changed::<ButtonInput<KeyCode>>),
+            toggle_visibility.run_if(
+                any_with_component::<InspectorMarker>.and(resource_changed::<ButtonInput<KeyCode>>),
+            ),
         )
         .run();
 }
@@ -56,7 +58,7 @@ fn toggle_visibility(
     input: Res<ButtonInput<KeyCode>>,
     mut commands: Commands,
 ) {
-    if input.just_pressed(KeyCode::Escape) {
+    if input.just_pressed(KeyCode::Backquote) {
         if let Ok(visibility) = visibilities.get(*inspector) {
             commands.entity(*inspector).insert(match visibility {
                 Visibility::Hidden => Visibility::Visible,

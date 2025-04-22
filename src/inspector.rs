@@ -74,8 +74,8 @@ use crate::{impl_syncers, signal_or};
 // TODO: docs
 // TODO: states reflection
 // TODO: show reflect documentation on hover (or right click ?) (see bevy-inspector-egui)
+// TODO: use remote justfile from haalka + use new nickel package management to reuse all haalka nickels without copying them
 
-// TODO: unnest Children vector ?
 // TODO: unnamed entities should probably just default to unsorted ?
 // TODO: typing in the searching or targeting box should disable inputs somehow ? (status quo in bevy-inspector-egui is doing nothing)
 // TODO: dragging numeric field doesn't work when number is very big ?
@@ -185,7 +185,7 @@ pub struct Inspector {
     border_color: Mutable<Color>,
     scroll_pixels: Mutable<f32>,
     header: Mutable<Option<String>>,
-    unnest_children: bool,
+    flatten_descendants: bool,
 }
 
 #[derive(Component)]
@@ -269,7 +269,7 @@ fn search_input_shared_properties(
             )
             .child(
                 El::<Node>::new()
-                .visibility_signal(text.signal_ref(String::is_empty).dedupe().map(|visible| if visible { Visibility::Visible } else { Visibility::Hidden }))
+                .visibility_signal(text.signal_ref(String::is_empty).dedupe().map(|visible| if visible { Visibility::Inherited } else { Visibility::Hidden }))
                 // TODO: Stack would make more sense but it's being super annoying ...
                 .with_node(|mut node| node.position_type = PositionType::Absolute)
                 .apply(padding_style(BoxEdge::ALL, padding.signal()))
@@ -644,7 +644,7 @@ fn inspection_target_root_selector(
     .layer(
         El::<Node>::new()
         // .align(Align::new().bottom())
-        .visibility_signal(signal_or!(target_root_focused.signal(), hovered.signal()).dedupe().map(|show| if show { Visibility::Visible } else { Visibility::Hidden }))
+        .visibility_signal(signal_or!(target_root_focused.signal(), hovered.signal()).dedupe().map(|show| if show { Visibility::Inherited } else { Visibility::Hidden }))
         .on_signal_with_node(border_width.signal(), |mut node, border_width| node.top = Val::Px(border_width))
         .apply(border_color_style(unhighlighted_color.signal()))
         .apply(border_width_style([BoxEdge::Bottom], border_width.signal()))
@@ -688,7 +688,7 @@ fn make_matcher_and_atom(search: &str) -> (Matcher, Pattern) {
     let matcher = Matcher::new(Config::DEFAULT);
     let atom = Pattern::new(
         search,
-        CaseMatching::Smart,
+        CaseMatching::Ignore,
         Normalization::Smart,
         nucleo_matcher::pattern::AtomKind::Fuzzy,
     );
@@ -750,6 +750,7 @@ impl ElementWrapper for Inspector {
         &mut self.wrapper_stack
     }
 
+    #[allow(clippy::type_complexity)]
     fn into_el(self) -> Self::EL {
         let Self {
             el,
@@ -777,10 +778,10 @@ impl ElementWrapper for Inspector {
             highlighted_color,
             unhighlighted_color,
             header,
-            unnest_children,
+            flatten_descendants,
             ..
         } = self;
-        let unnest_children = Mutable::new(unnest_children);
+        let flatten_descendants = Mutable::new(flatten_descendants);
         let viewport_height = Mutable::new(0.);
         let inspector_hovered = Mutable::new(false);
         let scrollbar_height_option: Mutable<Option<f32>> = Mutable::new(None);
@@ -964,21 +965,6 @@ impl ElementWrapper for Inspector {
         .update_raw_el(clone!((show_search, show_targeting, first_target, second_target, third_target, search_target_root, targeting_target_root, search) move |raw_el| {
             raw_el
             .hold_tasks([search_task, on_insert_search_filterer_task])
-            .on_spawn_with_system(|
-                In(entity): In<Entity>,
-                default_ui_camera_option: Option<Single<Entity, With<IsDefaultUiCamera>>>,
-                camera_2ds: Query<Entity, With<Camera2d>>,
-                camera_3ds: Query<Entity, With<Camera3d>>,
-                parents: Query<&Parent>,
-                mut commands: Commands,
-            | {
-                let camera = default_ui_camera_option.as_deref().copied().or_else(|| camera_2ds.iter().next()).or_else(|| camera_3ds.iter().next()).unwrap_or_else(|| commands.spawn(Camera2d).id());
-                if let Some(root) = parents.iter_ancestors(entity).last() {
-                    if let Some(mut entity) = commands.get_entity(root) {
-                        entity.try_insert((UiRoot, TargetCamera(camera)));
-                    }
-                }
-            })
             .on_signal_with_system(
                 clone!((search, search_target_root, targeting_target_root) map_ref! {
                     let &show_search = show_search.signal(),
@@ -1427,8 +1413,8 @@ impl ElementWrapper for Inspector {
                         .update_raw_el(move |raw_el| {
                             raw_el
                             .insert(EntitiesHeader)
-                            .component_signal::<SyncEntities, _>(unnest_children.signal().map_true(default))
-                            .component_signal::<SyncOrphanEntities, _>(unnest_children.signal().map_false(default))
+                            .component_signal::<SyncEntities, _>(flatten_descendants.signal().map_true(default))
+                            .component_signal::<SyncOrphanEntities, _>(flatten_descendants.signal().map_false(default))
                         })
                         .item_signal(
                             expanded.signal().dedupe().map_true(clone!((padding, border_width, hovered, tertiary_background_color, border_color, font_size, primary_background_color, highlighted_color, unhighlighted_color, row_gap, secondary_background_color, column_gap) move || {
@@ -1818,7 +1804,7 @@ impl ElementWrapper for Inspector {
                                 )
                                 .child(
                                     El::<Node>::new()
-                                    .visibility_signal(search.signal_ref(String::is_empty).dedupe().apply(signal::not).map(|visible| if visible { Visibility::Visible } else { Visibility::Hidden }))
+                                    .visibility_signal(search.signal_ref(String::is_empty).dedupe().apply(signal::not).map(|visible| if visible { Visibility::Inherited } else { Visibility::Hidden }))
                                     // TODO: Stack would make more sense but it's being super annoying ...
                                     .with_node(|mut node| node.position_type = PositionType::Absolute)
                                     .align(Align::new().right())
@@ -2050,7 +2036,7 @@ impl ElementWrapper for Inspector {
                                 let expected_tooltip_height = font_size.get() + padding.get() + border_width.get() * 2. + 3.;  // TODO: where did this 3. come from ?
                                 move_tooltip_to_position.move_(entity, position, Some(expected_tooltip_height));
                                 if let Some(mut entity) = commands.get_entity(entity) {
-                                    entity.try_insert(Visibility::Visible);
+                                    entity.try_insert(Visibility::Inherited);
                                 }
                             }
                         }
@@ -2090,6 +2076,23 @@ impl ElementWrapper for Inspector {
             .insert(InspectorMarker)
             .insert(TooltipHolder(tooltip.clone()))
             .insert(InspectorBloodline)
+            .on_spawn_with_system(|
+                In(entity): In<Entity>,
+                default_ui_camera_option: Option<Single<(Entity, Option<&RenderLayers>), With<IsDefaultUiCamera>>>,
+                camera_2ds: Query<(Entity, Option<&RenderLayers>), With<Camera2d>>,
+                camera_3ds: Query<(Entity, Option<&RenderLayers>), With<Camera3d>>,
+                parents: Query<&Parent>,
+                mut commands: Commands,
+            | {
+                let (camera, render_layers_option) = default_ui_camera_option.as_deref().copied().or_else(|| camera_2ds.iter().next()).or_else(|| camera_3ds.iter().next()).unwrap_or_else(|| (commands.spawn(Camera2d).id(), None));
+                let root = parents.iter_ancestors(entity).last().unwrap_or(entity);
+                if let Some(mut entity) = commands.get_entity(root) {
+                    entity.try_insert((UiRoot, TargetCamera(camera)));
+                    if let Some(render_layers) = render_layers_option {
+                        entity.try_insert(render_layers.clone());
+                    }
+                }
+            })
             .on_event_with_system::<Pointer<Down>, _>(|In((entity, _)), mut commands: Commands| commands.insert_resource(SelectedInspector(entity)))
             .observe(|event: Trigger<SizeReached>, childrens: Query<&Children>, inspector_columns: Query<&InspectorColumn>, scroll_positions: Query<&ScrollPosition>, previous_scroll_positions: Query<&PreviousScrollPosition>, mut commands: Commands| {
                 let entity = event.entity();
@@ -2204,7 +2207,7 @@ impl Inspector {
             border_color: GLOBAL_BORDER_COLOR.clone(),
             scroll_pixels: GLOBAL_SCROLL_PIXELS.clone(),
             header: Mutable::new(None),
-            unnest_children: false,
+            flatten_descendants: false,
         }
     }
 
@@ -2283,8 +2286,8 @@ impl Inspector {
         self
     }
 
-    pub fn unnest_children(mut self) -> Self {
-        self.unnest_children = true;
+    pub fn flatten_descendants(mut self) -> Self {
+        self.flatten_descendants = true;
         self
     }
 
