@@ -4,6 +4,19 @@ the format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## unreleased
 
+### added
+
+- inspector root inherits `RenderLayers` of its `TargetCamera`
+
+### changed
+
+- **breaking:** renamed `Inspector::unnest_children` to `.flatten_descendants`
+- searching ignores case
+
+### fixed
+
+- inspector `Visibility` inherited by all descendants
+
 # 0.0.4 (2025-04-12)
 
 ### added
