@@ -750,6 +750,7 @@ impl ElementWrapper for Inspector {
         &mut self.wrapper_stack
     }
 
+    #[allow(clippy::type_complexity)]
     fn into_el(self) -> Self::EL {
         let Self {
             el,
