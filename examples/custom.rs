@@ -1,10 +1,11 @@
 //! register custom frontends for any type
 
 mod utils;
+use bevy_ecs::component::HookContext;
 use utils::*;
 
 use aalo::prelude::*;
-use bevy::ecs::{component::ComponentId, world::DeferredWorld};
+use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 
 fn main() {
@@ -27,7 +28,7 @@ struct BoolComponent(bool);
 #[derive(Component, Reflect, Default)]
 struct CustomBoolComponent(bool);
 
-fn init_custom_bool_frontend(mut world: DeferredWorld, entity: Entity, _: ComponentId) {
+fn init_custom_bool_frontend(mut world: DeferredWorld, HookContext { entity, .. }: HookContext) {
     let mut commands = world.commands();
     let text = commands.spawn_empty().id();
     let system = commands.register_system(
@@ -55,8 +56,8 @@ fn init_custom_bool_frontend(mut world: DeferredWorld, entity: Entity, _: Compon
                     };
                     // one of these will silently error depending on if it's the field or component
                     // target, we just do both here for the convenience of using the same frontend
-                    field.update(click.entity(), (!cur).clone_value());
-                    field.update(click.entity(), CustomBoolComponent(!cur).clone_value());
+                    field.update(click.target(), (!cur).to_dynamic());
+                    field.update(click.target(), CustomBoolComponent(!cur).to_dynamic());
                 }
             },
         );

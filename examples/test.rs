@@ -17,7 +17,6 @@ fn main() {
                 }),
                 ..default()
             }),
-            bevy::dev_tools::ui_debug_overlay::DebugUiPlugin,
             HaalkaPlugin,
             // style::plugin,
             AaloPlugin::new()
@@ -98,7 +97,7 @@ fn main() {
         .register_type::<BoolVecHolder>()
         .register_type::<NonZeroHolder>()
         .add_systems(Startup, (camera, ui_root, setup))
-        .add_systems(Update, toggle_overlay)
+        // .add_systems(Update, toggle_overlay)
         .run();
 }
 
@@ -214,8 +213,10 @@ fn setup(
 
 fn ui_root(world: &mut World) {
     Column::<Node>::new()
-        .width(Val::Percent(100.))
-        .height(Val::Percent(100.))
+        .with_node(|mut node| {
+            node.width = Val::Percent(100.);
+            node.height = Val::Percent(100.);
+        })
         .cursor(CursorIcon::System(SystemCursorIcon::Default))
         .update_raw_el(|raw_el| {
             raw_el
@@ -230,7 +231,7 @@ fn ui_root(world: &mut World) {
                     bool_4: (false, default(), vec![false, true]),
                     ..default()
                 })
-                .insert(PickingBehavior {
+                .insert(Pickable {
                     should_block_lower: false,
                     ..default()
                 })
@@ -254,11 +255,11 @@ fn ui_root(world: &mut World) {
         .spawn(world);
 }
 
-fn toggle_overlay(
-    input: Res<ButtonInput<KeyCode>>,
-    mut options: ResMut<bevy::dev_tools::ui_debug_overlay::UiDebugOptions>,
-) {
-    if input.just_pressed(KeyCode::F1) {
-        options.toggle();
-    }
-}
+// fn toggle_overlay(
+//     input: Res<ButtonInput<KeyCode>>,
+//     mut options: ResMut<bevy::dev_tools::ui_debug_overlay::UiDebugOptions>,
+// ) {
+//     if input.just_pressed(KeyCode::F1) {
+//         options.toggle();
+//     }
+// }

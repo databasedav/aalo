@@ -125,6 +125,13 @@ All examples are compiled to wasm for both webgl2 and webgpu (check [compatibili
 
     custom frontend for a field and a component
 
+Or run them locally with `cargo`.
+```bash
+cargo run --example world
+cargo run --example custom
+```
+Or with [`just`](https://github.com/casey/just), e.g. `just example world -r`.
+
 ## Bevy compatibility
 
 |bevy|aalo|

@@ -2,7 +2,7 @@ use std::any::TypeId;
 
 use bevy_asset::{ReflectAsset, UntypedAssetId, UntypedHandle};
 use bevy_ecs::{component::ComponentId, prelude::*};
-use bevy_reflect::{prelude::*, ReflectFromPtr};
+use bevy_reflect::{ReflectFromPtr, prelude::*};
 
 pub fn reflect_component(
     world: &mut World,
@@ -23,18 +23,14 @@ pub fn reflect_component(
                 .get_resource::<AppTypeRegistry>()
                 .map(|type_registry| type_registry.read()),
         )
-    {
-        if let Some((component_ptr, type_registration)) = entity
+        && let Some((component_ptr, type_registration)) = entity
             .get_by_id(component)
             .ok()
             .zip(type_registry.get(type_id))
-        {
-            if let Some(reflect_from_ptr) = type_registration.data::<ReflectFromPtr>() {
+            && let Some(reflect_from_ptr) = type_registration.data::<ReflectFromPtr>() {
                 // SAFETY: same `ComponentId` is used to fetch component data and type id
                 return Some(unsafe { reflect_from_ptr.as_reflect(component_ptr) });
             }
-        }
-    }
     None
 }
 
@@ -50,20 +46,16 @@ pub fn reflect_component_mut<'w>(
                 .and_then(|info| info.type_id())
         })
         .zip(entity.world_scope(|world| world.get_resource::<AppTypeRegistry>().cloned()))
-    {
-        if let Some((component_ptr, type_registration)) = entity
+        && let Some((component_ptr, type_registration)) = entity
             .get_mut_by_id(component)
             .ok()
             .zip(type_registry.read().get(type_id))
-        {
-            if let Some(reflect_from_ptr) = type_registration.data::<ReflectFromPtr>() {
+            && let Some(reflect_from_ptr) = type_registration.data::<ReflectFromPtr>() {
                 return Some(component_ptr.map_unchanged(|ptr| {
                     // SAFETY: same `ComponentId` is used to fetch component data and type id
                     unsafe { reflect_from_ptr.as_reflect_mut(ptr) }
                 }));
             }
-        }
-    }
     None
 }
 
@@ -100,17 +92,13 @@ pub fn reflect_resource(world: &mut World, component: ComponentId) -> Option<&dy
                 .get_resource::<AppTypeRegistry>()
                 .map(|type_registry| type_registry.read()),
         )
-    {
-        if let Some((component_ptr, type_registration)) = world
+        && let Some((component_ptr, type_registration)) = world
             .get_resource_by_id(component)
             .zip(type_registry.get(type_id))
-        {
-            if let Some(reflect_from_ptr) = type_registration.data::<ReflectFromPtr>() {
+            && let Some(reflect_from_ptr) = type_registration.data::<ReflectFromPtr>() {
                 // SAFETY: same `ComponentId` is used to fetch component data and type id
                 return Some(unsafe { reflect_from_ptr.as_reflect(component_ptr) });
             }
-        }
-    }
     None
 }
 
@@ -123,20 +111,16 @@ pub fn reflect_resource_mut<'w>(
         .get_info(component)
         .and_then(|info| info.type_id())
         .zip(world.get_resource::<AppTypeRegistry>().cloned())
-    {
-        if let Some((resource_ptr, type_registration)) = world
+        && let Some((resource_ptr, type_registration)) = world
             .get_resource_mut_by_id(component)
             .zip(type_registry.read().get(type_id))
-        {
-            if let Some(reflect_from_ptr) = type_registration.data::<ReflectFromPtr>() {
+            && let Some(reflect_from_ptr) = type_registration.data::<ReflectFromPtr>() {
                 return Some(
                     resource_ptr
                         // SAFETY: same `ComponentId` is used to fetch component data and type id
                         .map_unchanged(|ptr| unsafe { reflect_from_ptr.as_reflect_mut(ptr) }),
                 );
-            }
-        }
-    };
+            };
     None
 }
 
@@ -164,15 +148,11 @@ pub fn reflect_asset(
     if let Some(type_registry) = world
         .get_resource::<AppTypeRegistry>()
         .map(|type_registry| type_registry.read())
-    {
-        if let Some(type_registration) = type_registry.get(asset) {
-            if let Some(reflect_asset) = type_registration.data::<ReflectAsset>() {
-                if let Some(reflect) = reflect_asset.get(world, UntypedHandle::Weak(handle)) {
+        && let Some(type_registration) = type_registry.get(asset)
+            && let Some(reflect_asset) = type_registration.data::<ReflectAsset>()
+                && let Some(reflect) = reflect_asset.get(world, UntypedHandle::Weak(handle)) {
                     return Some(reflect);
                 }
-            }
-        }
-    }
     None
 }
 
@@ -181,13 +161,11 @@ pub fn reflect_asset_mut(
     asset: TypeId,
     handle: UntypedAssetId,
 ) -> Option<&mut dyn Reflect> {
-    if let Some(type_registry) = world.get_resource::<AppTypeRegistry>().cloned() {
-        if let Some(registration) = type_registry.read().get(asset) {
-            if let Some(reflect_asset) = registration.data::<ReflectAsset>() {
+    if let Some(type_registry) = world.get_resource::<AppTypeRegistry>().cloned()
+        && let Some(registration) = type_registry.read().get(asset)
+            && let Some(reflect_asset) = registration.data::<ReflectAsset>() {
                 return reflect_asset.get_mut(world, UntypedHandle::Weak(handle));
             }
-        }
-    }
     None
 }
 

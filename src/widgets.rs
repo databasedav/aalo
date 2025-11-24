@@ -3,7 +3,6 @@ use crate::impl_syncers;
 use bevy_asset::prelude::*;
 use bevy_color::prelude::*;
 use bevy_ecs::{prelude::*, system::SystemId};
-use bevy_hierarchy::*;
 use bevy_text::prelude::*;
 use bevy_ui::prelude::*;
 use haalka::{prelude::*, raw::utils::remove_system_holder_on_remove};
@@ -133,7 +132,6 @@ impl ElementWrapper for Checkbox {
     }
 }
 
-impl Sizeable for Checkbox {}
 impl GlobalEventAware for Checkbox {}
 impl PointerEventAware for Checkbox {}
 impl Nameable for Checkbox {}
@@ -166,8 +164,10 @@ impl Checkbox {
                 .map_true(clone!((hovered, highlighted_color, unhighlighted_color, border_radius) move ||
                     El::<Node>::new()
                         .apply(border_radius_style(BoxCorner::ALL, border_radius.signal().map(mul(0.5))))
-                        .width(Val::Percent(100.))
-                        .height(Val::Percent(100.))
+                            .with_node(|mut node| {
+                                node.width = Val::Percent(100.);
+                                node.height = Val::Percent(100.);
+                            })
                         .apply(background_style(hovered.signal().map_bool_signal(clone!((highlighted_color) move || highlighted_color.signal()), clone!((unhighlighted_color) move || unhighlighted_color.signal()))))
                 ))
             );
@@ -273,15 +273,19 @@ impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for 
                 // .apply(border_width_style([BoxEdge::Bottom], show_dropdown.signal().map_false_signal(clone!((border_width) move || border_width.signal())).map(Option::unwrap_or_default)))
                 .apply(border_radius_style(BoxCorner::TOP, border_radius.signal()))
                 .apply(border_radius_style(BoxCorner::BOTTOM, show_dropdown.signal().map_false_signal(clone!((border_radius) move || border_radius.signal())).map(Option::unwrap_or_default)))
-                .width(Val::Percent(100.))
+                                            .with_node(|mut node| {
+                                node.width = Val::Percent(100.);
+                            })
+
                 .apply(background_style(background_color.signal()))
                 .cursor(CursorIcon::System(SystemCursorIcon::Pointer))
                 .on_click(clone!((show_dropdown) move || flip(&show_dropdown)))
                 .hovered_sync(hovered.clone())
                 .child(
                     El::<Node>::new()
-                    .width(Val::Percent(100.))
-                    .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
+.with_node(|mut node| {
+                                node.width = Val::Percent(100.);
+                            })                    .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
                     .apply(border_style(border_width.signal(), signal::and(show_dropdown.signal(), hovered.signal()).map_bool_signal(clone!((highlighted_color) move || highlighted_color.signal()), clone!((background_color) move || background_color.signal()))))
                     .apply(padding_style(BoxEdge::ALL, padding.signal()))
                     .child(
@@ -307,21 +311,19 @@ impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for 
                 Column::<Node>::new()
                 .global_z_index(GlobalZIndex(z_order("dropdown")))
                 .apply(border_color_style(border_color.signal()))
-                .width(Val::Percent(100.))
-                .with_node(|mut node| node.position_type = PositionType::Absolute)
-                .update_raw_el(|raw_el| raw_el.on_spawn_with_system(|In(entity), parents: Query<&Parent>, childrens: Query<&Children>, computed_nodes: Query<&ComputedNode>, mut nodes: Query<&mut Node>| {
-                    if let Ok(parent) = parents.get(entity) {
-                        if let Ok(siblings) = childrens.get(parent.get()) {
-                            if let Some(&sibling) = siblings.first() {
-                                if let Ok(sibling_node) = computed_nodes.get(sibling) {
-                                    if let Ok(mut node) = nodes.get_mut(entity) {
+                .with_node(|mut node| {
+                                node.width = Val::Percent(100.);
+                                node.position_type = PositionType::Absolute;
+                            })
+                .update_raw_el(|raw_el| raw_el.on_spawn_with_system(|In(entity), child_ofs: Query<&ChildOf>, childrens: Query<&Children>, computed_nodes: Query<&ComputedNode>, mut nodes: Query<&mut Node>| {
+                    if let Ok(child_of) = child_ofs.get(entity)
+                        && let Ok(siblings) = childrens.get(child_of.parent())
+                            && let Some(&sibling) = siblings.first()
+                                && let Ok(sibling_node) = computed_nodes.get(sibling)
+                                    && let Ok(mut node) = nodes.get_mut(entity) {
                                         // TODO: this is not robust to larger font sizes
                                         node.top = Val::Px(sibling_node.size().y + 1.);  // TODO: y do i need this 1. ?
                                     }
-                                }
-                            }
-                        }
-                    }
                 }))
                 .apply(border_width_style([BoxEdge::Left, BoxEdge::Right, BoxEdge::Bottom], border_width.signal()))
                 .apply(border_radius_style([BoxCorner::BottomLeft, BoxCorner::BottomRight], border_radius.signal()))
@@ -345,7 +347,7 @@ impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for 
                     ) move |(i, OptionData { option, blocked, .. })| {
                         let hovered = Mutable::new(false);
                         let mut el = El::<Node>::new()
-                            .width(Val::Percent(100.))
+                            .with_node(|mut node| node.width = Val::Percent(100.))
                             .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
                             .apply(background_style(background_color.signal()))
                             .apply(padding_style(BoxEdge::ALL, padding.signal()))
@@ -412,7 +414,7 @@ impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for 
                                 el = el
                                 .on_click_with_system(move |_: In<_>, mut commands: Commands| {
                                     if let Some(i) = i.get() {
-                                        commands.run_system_with_input(system, i);
+                                        commands.run_system_with(system, i);
                                     }
                                 });
                             }
@@ -425,7 +427,6 @@ impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for 
     }
 }
 
-impl<T: Clone + PartialEq + Display + Send + Sync + 'static> Sizeable for Dropdown<T> {}
 impl<T: Clone + PartialEq + Display + Send + Sync + 'static> GlobalEventAware for Dropdown<T> {}
 impl<T: Clone + PartialEq + Display + Send + Sync + 'static> PointerEventAware for Dropdown<T> {}
 

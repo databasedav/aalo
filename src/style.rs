@@ -141,13 +141,13 @@ pub fn left_bordered_style<E: Element>(
     }
 }
 
-pub fn square_style<E: Sizeable>(
+pub fn square_style<E: Element>(
     size: impl Signal<Item = f32> + Send + Sync + 'static,
 ) -> impl FnOnce(E) -> E {
     move |el| {
         let size = size.dedupe().broadcast();
-        el.apply(height_style(size.signal()))
-            .apply(width_style(size.signal()))
+        el.apply(height_style(size.signal().map(Val::Px)))
+            .apply(width_style(size.signal().map(Val::Px)))
     }
 }
 
@@ -190,16 +190,30 @@ pub fn background_style<E: Element>(
     }
 }
 
-pub fn height_style<E: Sizeable>(
-    height: impl Signal<Item = f32> + Send + 'static,
+pub fn height_style<E: Element>(
+    height: impl Signal<Item = Val> + Send + 'static,
 ) -> impl FnOnce(E) -> E {
-    |el| el.height_signal(height.dedupe().map(Val::Px))
+    |el| {
+        el.update_raw_el(|raw_el| {
+            raw_el.on_signal_with_component::<_, Node>(
+                height.dedupe(),
+                |mut node, height| node.height = height,
+            )
+        })
+    }
 }
 
-pub fn width_style<E: Sizeable>(
-    width: impl Signal<Item = f32> + Send + 'static,
+pub fn width_style<E: Element>(
+    width: impl Signal<Item = Val> + Send + 'static,
 ) -> impl FnOnce(E) -> E {
-    |el| el.width_signal(width.dedupe().map(Val::Px))
+    |el| {
+        el.update_raw_el(|raw_el| {
+            raw_el.on_signal_with_component::<_, Node>(
+                width.dedupe(),
+                |mut node, width| node.width = width,
+            )
+        })
+    }
 }
 
 pub fn border_style<E: Element>(

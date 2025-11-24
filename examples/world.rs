@@ -58,12 +58,11 @@ fn toggle_visibility(
     input: Res<ButtonInput<KeyCode>>,
     mut commands: Commands,
 ) {
-    if input.just_pressed(KeyCode::Backquote) {
-        if let Ok(visibility) = visibilities.get(*inspector) {
+    if input.just_pressed(KeyCode::Backquote)
+        && let Ok(visibility) = visibilities.get(*inspector) {
             commands.entity(*inspector).insert(match visibility {
                 Visibility::Hidden => Visibility::Visible,
                 _ => Visibility::Hidden,
             });
         }
-    }
 }

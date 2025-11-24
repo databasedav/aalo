@@ -2,7 +2,6 @@ use bevy_ecs::{
     prelude::*,
     system::{RunSystemOnce, SystemId, SystemParam},
 };
-use bevy_hierarchy::prelude::*;
 use bevy_math::prelude::*;
 use bevy_picking::prelude::*;
 use bevy_ui::prelude::*;
@@ -96,13 +95,12 @@ pub fn sync_tooltip_position(
             |event: Trigger<Pointer<Enter>>,
              mut inspector_ancestor: InspectorAncestor,
              mut commands: Commands| {
-                if let Some(inspector) = inspector_ancestor.get(event.entity()) {
-                    if let Some(mut entity) = commands.get_entity(inspector) {
+                if let Some(inspector) = inspector_ancestor.get(event.target())
+                    && let Ok(mut entity) = commands.get_entity(inspector) {
                         entity.try_insert(TooltipTargetPosition(
                             event.event().pointer_location.position,
                         ));
                     }
-                }
             },
         )
         .on_event_with_system::<Pointer<Move>, _>(
@@ -115,11 +113,10 @@ pub fn sync_tooltip_position(
                     move_.pointer_location.position,
                     Some(expected_tooltip_height),
                 );
-                if let Some(inspector) = inspector_ancestor.get(entity) {
-                    if let Some(mut entity) = commands.get_entity(inspector) {
+                if let Some(inspector) = inspector_ancestor.get(entity)
+                    && let Ok(mut entity) = commands.get_entity(inspector) {
                         entity.try_insert(TooltipTargetPosition(move_.pointer_location.position));
                     }
-                }
             },
         )
         .on_remove(|world, entity| {
@@ -143,7 +140,7 @@ pub struct InspectorMarker;
 
 #[derive(SystemParam)]
 pub struct InspectorAncestor<'w, 's> {
-    parents: Query<'w, 's, &'static Parent>,
+    child_ofs: Query<'w, 's, &'static ChildOf>,
     entity_inspectors: Query<'w, 's, &'static InspectorMarker>,
     cache: Local<'s, Option<Entity>>,
 }
@@ -151,7 +148,7 @@ pub struct InspectorAncestor<'w, 's> {
 impl<'w, 's> InspectorAncestor<'w, 's> {
     pub fn get(&mut self, entity: Entity) -> Option<Entity> {
         if self.cache.is_none() {
-            for ancestor in self.parents.iter_ancestors(entity) {
+            for ancestor in self.child_ofs.iter_ancestors(entity) {
                 if self.entity_inspectors.contains(ancestor) {
                     *self.cache = Some(ancestor);
                     break;
@@ -232,13 +229,11 @@ pub struct TooltipCache<'w, 's> {
 
 impl<'w, 's> TooltipCache<'w, 's> {
     pub fn get(&mut self, entity: Entity) -> Option<Mutable<Option<TooltipData>>> {
-        if self.cache.is_none() {
-            if let Some(inspector) = self.inspector_ancestor.get(entity) {
-                if let Ok(TooltipHolder(tooltip)) = self.tooltips.get(inspector).cloned() {
+        if self.cache.is_none()
+            && let Some(inspector) = self.inspector_ancestor.get(entity)
+                && let Ok(TooltipHolder(tooltip)) = self.tooltips.get(inspector).cloned() {
                     *self.cache = Some(tooltip);
                 }
-            }
-        }
         self.cache.clone()
     }
 }

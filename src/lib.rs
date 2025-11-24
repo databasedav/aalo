@@ -126,8 +126,10 @@ impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {
                 clone!((transformers) move |world: &mut World| {
                         El::<Node>::new()
                             .global_z_index(GlobalZIndex(i32::MIN))
-                            .width(Val::Percent(100.))
-                            .height(Val::Percent(100.))
+                            .with_node(|mut node| {
+                                node.width = Val::Percent(100.);
+                                node.height = Val::Percent(100.);
+                            })
                             .cursor(CursorIcon::System(SystemCursorIcon::Default))
                             .child({
                                 let mut inspector = Inspector::new();
@@ -163,7 +165,7 @@ impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {
 pub mod prelude {
     pub use super::AaloPlugin;
     pub use crate::{
-        inspector::{register_frontend, FieldListener, Inspector, TargetField},
+        inspector::{FieldListener, Inspector, TargetField, register_frontend},
         utils::InspectorMarker,
     };
 }
