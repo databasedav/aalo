@@ -220,8 +220,8 @@ fn search_input_shared_properties(
     text: Mutable<String>,
     tertiary_background_color: Mutable<Color>,
     placeholder: impl Signal<Item = &'static str> + Send + Sync + 'static,
-) -> impl FnOnce(TextInput) -> El<Node> {
-    move |input: TextInput| {
+) -> impl FnOnce(TextInputAlignmentWrapper) -> El<Node> {
+    move |input| {
         El::<Node>::new()
             .child(
                 input
@@ -277,8 +277,10 @@ fn search_input_shared_properties(
                     //             .map(Some)
                     //         ),
                     // )
-                    .with_text_input_node(|mut node| {
-                        node.mode = TextInputMode::SingleLine;
+                    .with_text_input(|text_input| {
+                        text_input.with_text_input_node(|mut node| {
+                            node.mode = TextInputMode::SingleLine;
+                        })
                     }), /* .scroll_disabled()
                          * TODO: https://github.com/Dimchikkk/bevy_cosmic_edit/issues/171
                          * .placeholder(Placeholder::new().text("search").attrs(TextAttrs::new().
@@ -1793,8 +1795,8 @@ impl ElementWrapper for Inspector {
                             .apply(padding_style([BoxEdge::Left], padding.signal()))
                             .child(
                                 base_text_input(search.clone(), identity, hovered.clone(), search_focused.clone(), None)
+                                .with_text_input(|text_input| text_input.on_change_sync(search.clone()))
                                 .update_raw_el(|raw_el| raw_el.on_spawn(clone!((search_focused) move |_, _| search_focused.set(true))))
-                                .on_change_sync(search.clone())
                                 .apply(
                                     search_input_shared_properties(
                                         hovered.clone(),
@@ -1927,21 +1929,22 @@ impl ElementWrapper for Inspector {
                                         .hovered_sync(hovered.clone())
                                         .child(
                                             base_text_input(third_target.clone(), identity, third_target_hovered.clone(), third_target_focused.clone(), None)
-                                            .on_change_sync(third_target.clone())
-                                            .apply(
-                                                search_input_shared_properties(
-                                                    third_target_hovered.clone(),
-                                                    third_target_focused.clone(),
-                                                    highlighted_color.clone(),
-                                                    border_color.clone(),
-                                                    unhighlighted_color.clone(),
-                                                    padding.clone(),
-                                                    font_size.clone(),
-                                                    third_target.clone(),
-                                                    tertiary_background_color.clone(),
-                                                    always(PARSED_PATH_PLACEHOLDER),
-                                                )
+                                            .with_text_input(|text_input| text_input.on_change_sync(third_target.clone())
                                             )
+                                                .apply(
+                                                    search_input_shared_properties(
+                                                        third_target_hovered.clone(),
+                                                        third_target_focused.clone(),
+                                                        highlighted_color.clone(),
+                                                        border_color.clone(),
+                                                        unhighlighted_color.clone(),
+                                                        padding.clone(),
+                                                        font_size.clone(),
+                                                        third_target.clone(),
+                                                        tertiary_background_color.clone(),
+                                                        always(PARSED_PATH_PLACEHOLDER),
+                                                    )
+                                                )
                                         )
                                         .apply(left_bordered_style(border_width.signal(), map_bool_signal(signal::or(hovered.signal(), third_target_focused.signal()).dedupe(), tertiary_background_color.clone(), border_color.clone()), padding.signal()))
                                         .apply(padding_style([BoxEdge::Left], padding.signal()))
@@ -1949,49 +1952,51 @@ impl ElementWrapper for Inspector {
                                 )
                                 .item(
                                     base_text_input(second_target.clone(), identity, second_target_hovered.clone(), second_target_focused.clone(), None)
-                                    .on_change_sync(second_target.clone())
-                                    .apply(
-                                        search_input_shared_properties(
-                                            second_target_hovered.clone(),
-                                            second_target_focused.clone(),
-                                            highlighted_color.clone(),
-                                            border_color.clone(),
-                                            unhighlighted_color.clone(),
-                                            padding.clone(),
-                                            font_size.clone(),
-                                            second_target.clone(),
-                                            tertiary_background_color.clone(),
-                                            targeting_target_root.signal().map(|root| match root {
-                                                InspectionTargetRoot::Entity => "`Component`",
-                                                InspectionTargetRoot::Resource => PARSED_PATH_PLACEHOLDER,
-                                                InspectionTargetRoot::Asset => "handle name",
-                                            }),
-                                        )
+                                    .with_text_input(|text_input| text_input.on_change_sync(second_target.clone())
                                     )
+                                        .apply(
+                                            search_input_shared_properties(
+                                                second_target_hovered.clone(),
+                                                second_target_focused.clone(),
+                                                highlighted_color.clone(),
+                                                border_color.clone(),
+                                                unhighlighted_color.clone(),
+                                                padding.clone(),
+                                                font_size.clone(),
+                                                second_target.clone(),
+                                                tertiary_background_color.clone(),
+                                                targeting_target_root.signal().map(|root| match root {
+                                                    InspectionTargetRoot::Entity => "`Component`",
+                                                    InspectionTargetRoot::Resource => PARSED_PATH_PLACEHOLDER,
+                                                    InspectionTargetRoot::Asset => "handle name",
+                                                }),
+                                            )
+                                        )
                                 )
                             })
                             .item(
                                 base_text_input(first_target.clone(), identity, first_target_hovered.clone(), first_target_focused.clone(), None)
                                 .update_raw_el(|raw_el| raw_el.on_spawn(clone!((first_target_focused) move |_, _| first_target_focused.set(true))))
-                                .on_change_sync(first_target.clone())
-                                .apply(
-                                    search_input_shared_properties(
-                                        first_target_hovered.clone(),
-                                        first_target_focused.clone(),
-                                        highlighted_color.clone(),
-                                        border_color.clone(),
-                                        unhighlighted_color.clone(),
-                                        padding.clone(),
-                                        font_size.clone(),
-                                        first_target.clone(),
-                                        tertiary_background_color.clone(),
-                                        targeting_target_root.signal().map(|root| match root {
-                                            InspectionTargetRoot::Entity => "`Entity` or `Name`",
-                                            InspectionTargetRoot::Resource => "`Resource`",
-                                            InspectionTargetRoot::Asset => "`Asset`",
-                                        }),
-                                    )
+                                .with_text_input(|text_input| text_input.on_change_sync(first_target.clone())
                                 )
+                                    .apply(
+                                        search_input_shared_properties(
+                                            first_target_hovered.clone(),
+                                            first_target_focused.clone(),
+                                            highlighted_color.clone(),
+                                            border_color.clone(),
+                                            unhighlighted_color.clone(),
+                                            padding.clone(),
+                                            font_size.clone(),
+                                            first_target.clone(),
+                                            tertiary_background_color.clone(),
+                                            targeting_target_root.signal().map(|root| match root {
+                                                InspectionTargetRoot::Entity => "`Entity` or `Name`",
+                                                InspectionTargetRoot::Resource => "`Resource`",
+                                                InspectionTargetRoot::Asset => "`Asset`",
+                                            }),
+                                        )
+                                    )
                             )
                         })
                         .item(
@@ -4103,6 +4108,7 @@ impl<'w, 's> TargetField<'w, 's> {
             self.commands.queue(move |world: &mut World| {
                 let f = |reflect: &mut dyn Reflect| {
                     if let Ok(target) = reflect.reflect_path_mut(&field_path) {
+                        info!("TargetField applying to {}: {:?}", field_path, value);
                         let _ = target.try_apply(&*value);
                     }
                 };
@@ -4197,7 +4203,7 @@ pub fn entity_field() -> impl Element {
 #[allow(clippy::type_complexity)]
 #[derive(Default)]
 pub struct TextInputField<T, F> {
-    el: TextInput,
+    el: TextInputAlignmentWrapper,
     initial: T,
     formatter: F,
     highlight: Mutable<bool>, // wrap in option when don't want to provide impl_syncer
@@ -4205,13 +4211,14 @@ pub struct TextInputField<T, F> {
     text_color_option: Option<SyncBoxSignal<'static, Option<Color>>>,
     focused: Option<Mutable<bool>>,
     value: Option<Mutable<T>>,
-    with_text_signal: Vec<Box<dyn FnMut(TextInput, BoxSignal<'static, String>) -> TextInput>>,
+    with_text_signal:
+        Vec<Box<dyn FnMut(TextInputAlignmentWrapper, BoxSignal<'static, String>) -> TextInputAlignmentWrapper>>,
 }
 
 impl<T, F> TextInputField<T, F> {
     pub fn new(initial: T, formatter: F) -> Self {
         Self {
-            el: TextInput::new(),
+            el: TextInputAlignmentWrapper::new(),
             initial,
             formatter,
             highlight: Mutable::new(false),
@@ -4254,24 +4261,18 @@ impl<T, F> TextInputField<T, F> {
         self
     }
 
-    pub fn with_text_signal(mut self, f: Box<dyn FnMut(TextInput, BoxSignal<'static, String>) -> TextInput>) -> Self {
+    pub fn with_text_signal(
+        mut self,
+        f: Box<dyn FnMut(TextInputAlignmentWrapper, BoxSignal<'static, String>) -> TextInputAlignmentWrapper>,
+    ) -> Self {
         self.with_text_signal.push(f);
         self
     }
 }
 
-impl<T: Send + Sync + PartialEq + Reflect + Clone + Debug, F: Fn(T) -> String + Send + Sync + Clone + 'static>
-    GlobalEventAware for TextInputField<T, F>
-{
-}
-impl<T: Send + Sync + PartialEq + Reflect + Clone + Debug, F: Fn(T) -> String + Send + Sync + Clone + 'static>
-    PointerEventAware for TextInputField<T, F>
-{
-}
-impl<T: Send + Sync + PartialEq + Reflect + Clone + Debug, F: Fn(T) -> String + Send + Sync + Clone + 'static>
-    CursorOnHoverable for TextInputField<T, F>
-{
-}
+impl GlobalEventAware for TextInputAlignmentWrapper {}
+impl PointerEventAware for TextInputAlignmentWrapper {}
+impl CursorOnHoverable for TextInputAlignmentWrapper {}
 
 // pub fn base_text_attrs() -> TextAttrs {
 //     TextAttrs::new()
@@ -4288,18 +4289,69 @@ pub fn text_input_height_signal(
         let font_size = font_size,
         let border_width = border_width,
         let padding = padding => {
-            font_size + border_width * 4. + padding + 3.  // TODO: where did this 3. come from ?
+            font_size + border_width * 4. + padding
         }
     }
 }
+
+// TODO: should remove this once bevy_ui_text_input supports vertical alignment https://github.com/ickshonpe/bevy_ui_text_input/issues/11
+#[derive(Default)]
+pub struct TextInputAlignmentWrapper {
+    el: El<Node>,
+    text_input: TextInput,
+}
+
+impl ElementWrapper for TextInputAlignmentWrapper {
+    type EL = El<Node>;
+
+    fn element_mut(&mut self) -> &mut Self::EL {
+        &mut self.el
+    }
+
+    fn into_el(self) -> Self::EL {
+        self.el.child(self.text_input)
+    }
+}
+
+impl TextInputAlignmentWrapper {
+    fn new() -> Self {
+        #[allow(clippy::unwrap_or_default)]
+        Self {
+            el: El::<Node>::new(),
+            text_input: TextInput::new().align(Align::new().center_y()),
+        }
+    }
+
+    fn with_text_input(self, f: impl FnOnce(TextInput) -> TextInput) -> Self {
+        Self {
+            text_input: f(self.text_input),
+            ..self
+        }
+    }
+}
+
+impl<T: Send + Sync + PartialEq + Reflect + Clone + Debug, F: Fn(T) -> String + Send + Sync + Clone + 'static>
+    GlobalEventAware for TextInputField<T, F>
+{
+}
+impl<T: Send + Sync + PartialEq + Reflect + Clone + Debug, F: Fn(T) -> String + Send + Sync + Clone + 'static>
+    PointerEventAware for TextInputField<T, F>
+{
+}
+impl<T: Send + Sync + PartialEq + Reflect + Clone + Debug, F: Fn(T) -> String + Send + Sync + Clone + 'static>
+    CursorOnHoverable for TextInputField<T, F>
+{
+}
+
+const TEXT_INPUT_HEIGHT_JITTER_BUFFER: f32 = 4.;
 
 pub fn base_text_input<T, F>(
     value: Mutable<T>,
     formatter: F,
     hovered: Mutable<bool>,
     focused: Mutable<bool>,
-    text_input_option: Option<TextInput>,
-) -> TextInput
+    wrapper: Option<TextInputAlignmentWrapper>,
+) -> TextInputAlignmentWrapper
 where
     T: Send + Sync + PartialEq + Reflect + Clone + Debug,
     F: Fn(T) -> String + Send + Sync + 'static,
@@ -4311,36 +4363,51 @@ where
     let border_width = GLOBAL_BORDER_WIDTH.clone();
     let border_color = GLOBAL_BORDER_COLOR.clone();
     let padding = GLOBAL_PADDING.clone();
-    #[allow(clippy::unwrap_or_default)]
-    text_input_option
-        .unwrap_or_else(TextInput::new)
-        // TODO: height_signal alone is not working for some reason ??
-        // .height(Val::Px(
-        //     font_size.get() + border_width.get() * 4. + padding.get() + 3.,
-        // ))
-        .on_signal_with_node(
-            text_input_height_signal(font_size.signal(), border_width.signal(), padding.signal()).map(Val::Px),
-            |mut node, height| node.height = height,
-        )
+    let wrapper = wrapper.unwrap_or_default();
+    wrapper
+        .update_raw_el(|raw_el| {
+            raw_el.on_signal_with_component::<_, Node>(
+                text_input_height_signal(font_size.signal(), border_width.signal(), padding.signal()).map(Val::Px),
+                |mut node, height| node.height = height,
+            )
+        })
         .hovered_sync(hovered.clone())
-        .text_signal(value.signal_cloned().map(formatter))
-        .focus_signal(focused.signal().dedupe())
-        .focused_sync(focused.clone())
-        .on_click_outside_with_system(
-            |In((entity, _)), mut focused_option: ResMut<InputFocus>, _commands: Commands| {
-                if focused_option.0 == Some(entity) {
-                    focused_option.0 = None
-                }
-            },
-        )
-        .on_signal_with_text_input_style(unhighlighted_color.signal(), |mut style, color| {
-            style.cursor_color = color
+        .with_text_input(move |text_input| {
+            text_input
+                .text_signal(value.signal_cloned().map(formatter))
+                .focus_signal(focused.signal().dedupe())
+                .focused_sync(focused.clone())
+                .update_raw_el(|raw_el| {
+                    raw_el
+                        .with_component::<Node>(|mut node| node.top = Val::Px(TEXT_INPUT_HEIGHT_JITTER_BUFFER / 2.))
+                        .on_signal_with_component::<_, Node>(
+                            text_input_height_signal(
+                                font_size.signal().map(add(TEXT_INPUT_HEIGHT_JITTER_BUFFER)),
+                                always(0.),
+                                always(0.),
+                            )
+                            .map(Val::Px),
+                            |mut node, height| node.height = height,
+                        )
+                })
+                .on_click_outside_with_system(
+                    |In((entity, _)), mut focused_option: ResMut<InputFocus>, _commands: Commands| {
+                        if focused_option.0 == Some(entity) {
+                            focused_option.0 = None
+                        }
+                    },
+                )
+                .on_signal_with_text_input_style(unhighlighted_color.signal(), |mut style, color| {
+                    style.cursor_color = color
+                })
+                .on_signal_with_text_input_style(border_color.signal(), |mut style, color| {
+                    style.selection_color = color
+                })
+                .on_signal_with_text_font(font_size.signal(), |mut text_font, font_size| {
+                    text_font.font_size = font_size
+                })
         })
-        .on_signal_with_text_input_style(border_color.signal(), |mut style, color| style.selection_color = color)
         .apply(background_style(background_color.signal()))
-        .on_signal_with_text_font(font_size.signal(), |mut text_font, font_size| {
-            text_font.font_size = font_size
-        })
         .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
         .apply(border_width_style(BoxEdge::ALL, border_width.signal()))
 }
@@ -4348,7 +4415,7 @@ where
 impl<T: Send + Sync + PartialEq + Reflect + Clone + Debug, F: Fn(T) -> String + Send + Sync + Clone + 'static>
     ElementWrapper for TextInputField<T, F>
 {
-    type EL = TextInput;
+    type EL = TextInputAlignmentWrapper;
     fn element_mut(&mut self) -> &mut Self::EL {
         &mut self.el
     }
@@ -4563,10 +4630,12 @@ where
         .with_border_color_option(parse_failure_color.signal())
         .with_text_color_option(parse_failure_color.signal())
         // TODO: without this initial static value, width snaps from 100% due to signal runtime lag
-        .update_raw_el(clone!((value, dragging) move |raw_el| {
+        .update_raw_el(clone!((value, dragging, focused) move |raw_el| {
             raw_el
-            // .insert(TextInputFocusOnDownDisabled)
-            .on_event_with_system_stop_propagation::<Pointer<DragStart>, _>(clone!((highlight, dragging, value) move |In((entity, drag_start)): In<(Entity, Pointer<DragStart>)>, mut commands: Commands| {
+            .on_event_with_system_stop_propagation::<Pointer<DragStart>, _>(clone!((highlight, dragging, value, focused) move |In((entity, drag_start)): In<(Entity, Pointer<DragStart>)>, mut commands: Commands| {
+                if focused.get() {
+                    return;
+                }
                 if matches!(drag_start.button, PointerButton::Primary) {
                     commands.insert_resource(CursorOnHoverDisabled);
                     commands.insert_resource(UpdateHoverStatesDisabled);
@@ -4628,11 +4697,11 @@ where
             })
         }))
         .cursor_signal(focused.signal().map_bool(|| SystemCursorIcon::Text, || SystemCursorIcon::EwResize).map(CursorIcon::System))
-        .on_click(move || {
+        .on_click(clone!((focused) move || {
             if !dragging.get() {
                 focused.set_neq(true);
             }
-        });
+        }));
     el.el = el
         .el
         .update_raw_el(clone!((parse_failed) move |raw_el| {
@@ -4669,36 +4738,48 @@ where
             )
         }))
         // .mode(CosmicWrap::InfiniteLine)
-        // .max_lines(MaxLines(1))
-        // .scroll_disabled()
         // TODO: this does not seem to work ... switch back to ::center once that works
         // .text_position_signal(padding.signal().map(|padding| CosmicTextAlign::Left {
         //     padding: padding.round() as i32,
         // }))
-        .on_focused_change(clone!((value, parse_failed) move |focused| {
-            if !focused {
-                let mut lock = parse_failed.lock_mut();
-                if lock.is_some() {
-                    value.lock_mut().deref_mut();  // resurface valid value
-                    *lock = None;
-                }
-            }
-        }))
-        .on_change_with_system(clone!((parse_failed) move |
-            In((ui_entity, text)): In<(Entity, String)>,
-            mut field: TargetField
-        | {
-            let result = text.parse::<T::T>();
-            match result {
-                Ok(new) => {
-                    parse_failed.set(None);
-                    field.update(ui_entity, new.to_dynamic());
-                }
-                Err(e) => {
-                    parse_failed.set(Some(format!("{:?}", e)));
-                }
-            }
-        }));
+        .with_text_input(|text_input| {
+            text_input
+                .with_text_input_node(|mut node| {
+                    node.focus_on_pointer_down = false;
+                    node.mode = TextInputMode::SingleLine;
+                    node.justification = JustifyText::Center;
+                })
+                .on_focused_change(clone!((value, parse_failed) move |focused| {
+                    if !focused {
+                        let mut lock = parse_failed.lock_mut();
+                        if lock.is_some() {
+                            value.lock_mut().deref_mut();  // resurface valid value
+                            *lock = None;
+                        }
+                    }
+                }))
+                .on_change_with_system(clone!((parse_failed, value, focused) move |
+                    In((ui_entity, text)): In<(Entity, String)>,
+                    mut field: TargetField
+                | {
+                    if !focused.get() {
+                        return;
+                    }
+                    let result = text.parse::<T::T>();
+                    match result {
+                        Ok(new) => {
+                            if new != value.get() {
+                                info!("Updating numeric field to {:?}", new);
+                                parse_failed.set(None);
+                                field.update(ui_entity, new.to_dynamic());
+                            }
+                        }
+                        Err(e) => {
+                            parse_failed.set(Some(format!("{:?}", e)));
+                        }
+                    }
+                }))
+        });
     el
 }
 
@@ -4707,7 +4788,6 @@ const STRING_FIELD_GROW_THRESHOLD: usize = 16;
 
 pub fn string_field<T: PartialReflect + From<String> + Into<String> + Default + PartialEq + Reflect + Clone + Debug>()
 -> impl Element {
-    let _padding = GLOBAL_PADDING.clone();
     TextInputField::new(T::default(), Into::into)
         .cursor(CursorIcon::System(SystemCursorIcon::Text))
         // TODO: without this initial static value, width snaps from 100% due to signal runtime lag
@@ -4727,18 +4807,21 @@ pub fn string_field<T: PartialReflect + From<String> + Into<String> + Default + 
             ))
         }))
         .into_el()
+        .with_text_input(|text_input| {
+            text_input.on_change_with_system(
+                move |In((ui_entity, text)): In<(Entity, String)>, mut field: TargetField| {
+                    field.update(ui_entity, T::from(text).to_dynamic());
+                },
+            )
+        })
+        .into_el()
         .with_node(|mut node| node.width = Val::Px(INITIAL_STRING_FIELD_INPUT_WIDTH))
-        // .mode(CosmicWrap::InfiniteLine)
-        // // TODO: remove for multiline
-        // .max_lines(MaxLines(1))
-        // .text_position_signal(padding.signal().map(|padding| CosmicTextAlign::Left {
-        //     padding: padding.round() as i32,
-        // }))
-        .on_change_with_system(
-            move |In((ui_entity, text)): In<(Entity, String)>, mut field: TargetField| {
-                field.update(ui_entity, T::from(text).to_dynamic());
-            },
-        )
+    // .mode(CosmicWrap::InfiniteLine)
+    // // TODO: remove for multiline
+    // .max_lines(MaxLines(1))
+    // .text_position_signal(padding.signal().map(|padding| CosmicTextAlign::Left {
+    //     padding: padding.round() as i32,
+    // }))
 }
 
 #[derive(Clone, Component)]

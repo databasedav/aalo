@@ -18,6 +18,7 @@ fn main() {
                 ..default()
             }),
             HaalkaPlugin,
+            DebugUiPlugin,
             // style::plugin,
             AaloPlugin::new()
                 .world()
@@ -26,12 +27,7 @@ fn main() {
                     inspector
                         // .header(Some("world inspector".to_string()))
                         // .jump_to(("FloatWrapper", "floatwrapper", ".0"))
-                        .jump_to((
-                            "entity",
-                            "0v1",
-                            "window",
-                            ".internal.physical_cursor_position.0",
-                        ))
+                        .jump_to(("entity", "0v1", "window", ".internal.physical_cursor_position.0"))
                     // .jump_to(("entity", "0v1", "window", ".internal.drag_resize_request"))
                     // .jump_to(("resource", "ambientlight", ".color.0.alpha"))
                     // .jump_to(("asset", "textureatlaslayout", "0001", ".textures[5].max"))
@@ -59,8 +55,9 @@ fn main() {
                     //         .filter_signal_cloned(|&(entity, _)| {
                     //             always(entity).map_future(|entity| async move {
                     //                 let result = Mutable::new(None);
-                    //                 async_world().apply(clone!((result) move |world: &mut World| {
-                    //                     result.set(Some(world.run_system_once(|| true).ok().unwrap_or(false)));
+                    //                 async_world().apply(clone!((result) move |world: &mut World|
+                    // {
+                    // result.set(Some(world.run_system_once(|| true).ok().unwrap_or(false)));
                     //                 })).await;
                     //                 result.signal_ref(Option::is_some).wait_for(true).await;
                     //                 result.get().unwrap_or(false)

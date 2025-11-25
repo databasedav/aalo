@@ -29,12 +29,7 @@ macro_rules! impl_syncers {
 #[derive(Component)]
 pub struct AaloOneShotSystem;
 
-pub fn register_system<
-    I: SystemInput + 'static,
-    O: 'static,
-    M,
-    S: IntoSystem<I, O, M> + 'static,
->(
+pub fn register_system<I: SystemInput + 'static, O: 'static, M, S: IntoSystem<I, O, M> + 'static>(
     world: &mut World,
     system: S,
 ) -> SystemId<I, O> {
@@ -92,15 +87,12 @@ pub fn sync_tooltip_position(
 ) -> impl FnOnce(RawHaalkaEl) -> RawHaalkaEl {
     move |el| {
         el.observe(
-            |event: Trigger<Pointer<Enter>>,
-             mut inspector_ancestor: InspectorAncestor,
-             mut commands: Commands| {
+            |event: Trigger<Pointer<Enter>>, mut inspector_ancestor: InspectorAncestor, mut commands: Commands| {
                 if let Some(inspector) = inspector_ancestor.get(event.target())
-                    && let Ok(mut entity) = commands.get_entity(inspector) {
-                        entity.try_insert(TooltipTargetPosition(
-                            event.event().pointer_location.position,
-                        ));
-                    }
+                    && let Ok(mut entity) = commands.get_entity(inspector)
+                {
+                    entity.try_insert(TooltipTargetPosition(event.event().pointer_location.position));
+                }
             },
         )
         .on_event_with_system::<Pointer<Move>, _>(
@@ -108,21 +100,19 @@ pub fn sync_tooltip_position(
                   mut move_tooltip_to_position: MoveTooltipToPosition,
                   mut inspector_ancestor: InspectorAncestor,
                   mut commands: Commands| {
-                move_tooltip_to_position.move_(
-                    entity,
-                    move_.pointer_location.position,
-                    Some(expected_tooltip_height),
-                );
+                move_tooltip_to_position.move_(entity, move_.pointer_location.position, Some(expected_tooltip_height));
                 if let Some(inspector) = inspector_ancestor.get(entity)
-                    && let Ok(mut entity) = commands.get_entity(inspector) {
-                        entity.try_insert(TooltipTargetPosition(move_.pointer_location.position));
-                    }
+                    && let Ok(mut entity) = commands.get_entity(inspector)
+                {
+                    entity.try_insert(TooltipTargetPosition(move_.pointer_location.position));
+                }
             },
         )
         .on_remove(|world, entity| {
             world.commands().queue(move |world: &mut World| {
                 let _ = world.run_system_once(move |tooltips: Query<&TooltipHolder>| {
-                    // needed to iterate through all of them since no components are available to target a specific inspector ? TODO
+                    // needed to iterate through all of them since no components are available to target a specific
+                    // inspector ? TODO
                     for TooltipHolder(tooltip) in tooltips.iter() {
                         let mut lock = tooltip.lock_mut();
                         if lock.as_ref().map(|tooltip| tooltip.owner) == Some(entity) {
@@ -182,14 +172,8 @@ impl<'w, 's> MoveTooltipToPosition<'w, 's> {
                 }
                 return;
             };
-            if let Ok([inspector_node, mut tooltip_node]) =
-                self.nodes.get_many_mut([inspector, tooltip])
-            {
-                let top = if let Val::Px(top) = inspector_node.top {
-                    top
-                } else {
-                    0.
-                };
+            if let Ok([inspector_node, mut tooltip_node]) = self.nodes.get_many_mut([inspector, tooltip]) {
+                let top = if let Val::Px(top) = inspector_node.top { top } else { 0. };
                 let left = if let Val::Px(left) = inspector_node.left {
                     left
                 } else {
@@ -197,8 +181,7 @@ impl<'w, 's> MoveTooltipToPosition<'w, 's> {
                 };
                 // TODO: the computed node height is actually wrong sometimes ...
                 // let modifier = computed_node.size().y.max(expected_tooltip_height.unwrap_or_default());
-                tooltip_node.top =
-                    Val::Px(position.y - top - expected_tooltip_height.unwrap_or_default());
+                tooltip_node.top = Val::Px(position.y - top - expected_tooltip_height.unwrap_or_default());
                 tooltip_node.left = Val::Px(position.x - left);
             }
         }
@@ -231,9 +214,10 @@ impl<'w, 's> TooltipCache<'w, 's> {
     pub fn get(&mut self, entity: Entity) -> Option<Mutable<Option<TooltipData>>> {
         if self.cache.is_none()
             && let Some(inspector) = self.inspector_ancestor.get(entity)
-                && let Ok(TooltipHolder(tooltip)) = self.tooltips.get(inspector).cloned() {
-                    *self.cache = Some(tooltip);
-                }
+            && let Ok(TooltipHolder(tooltip)) = self.tooltips.get(inspector).cloned()
+        {
+            *self.cache = Some(tooltip);
+        }
         self.cache.clone()
     }
 }

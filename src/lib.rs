@@ -17,8 +17,7 @@ use inspector::*;
 
 #[allow(clippy::type_complexity)]
 struct WorldInspectorConfig {
-    inspector_transformers:
-        Mutex<Vec<Box<dyn FnOnce(Inspector) -> Inspector + Send + Sync + 'static>>>,
+    inspector_transformers: Mutex<Vec<Box<dyn FnOnce(Inspector) -> Inspector + Send + Sync + 'static>>>,
     flatten_descendants: bool,
 }
 
@@ -70,10 +69,7 @@ impl<WorldFlag> AaloPlugin<WorldFlag> {
     where
         WorldFlag: FlagSet,
     {
-        self.world_inspector_config
-            .as_mut()
-            .unwrap()
-            .flatten_descendants = true;
+        self.world_inspector_config.as_mut().unwrap().flatten_descendants = true;
         self.into_type()
     }
 
@@ -110,15 +106,14 @@ impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {
     fn build(&self, app: &mut App) {
         app.add_plugins(inspector::plugin);
         if let Some(world_inspector_config) = &self.world_inspector_config {
-            let transformers: Mutex<Vec<Box<dyn FnOnce(Inspector) -> Inspector + Send + Sync>>> =
-                Mutex::new(
-                    world_inspector_config
-                        .inspector_transformers
-                        .lock()
-                        .unwrap()
-                        .drain(..)
-                        .collect(),
-                );
+            let transformers: Mutex<Vec<Box<dyn FnOnce(Inspector) -> Inspector + Send + Sync>>> = Mutex::new(
+                world_inspector_config
+                    .inspector_transformers
+                    .lock()
+                    .unwrap()
+                    .drain(..)
+                    .collect(),
+            );
             let flatten_descendants = world_inspector_config.flatten_descendants;
             let transformers = Arc::new(transformers);
             app.add_systems(

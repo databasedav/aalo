@@ -48,6 +48,7 @@ deployed_wasm_example = []
 
 [dev-dependencies]
 bevy = { version = "0.16", features = ["bevy_dev_tools"] }
+haalka = { version = "0.5", features = ["debug"] }
 
 [[example]]
 name = "custom"

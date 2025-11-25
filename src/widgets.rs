@@ -87,12 +87,10 @@ impl HighlightableText {
         let hovered = Mutable::new(false);
         let highlighted = Mutable::new(false);
         let dynamic_text = DynamicText::new()
-            .color_signal(
-                signal::or(hovered.signal(), highlighted.signal()).map_bool_signal(
-                    clone!((highlighted_color) move || highlighted_color.signal()),
-                    clone!((unhighlighted_color) move || unhighlighted_color.signal()),
-                ),
-            )
+            .color_signal(signal::or(hovered.signal(), highlighted.signal()).map_bool_signal(
+                clone!((highlighted_color) move || highlighted_color.signal()),
+                clone!((unhighlighted_color) move || unhighlighted_color.signal()),
+            ))
             .hovered_sync(hovered);
         Self {
             text: dynamic_text,
@@ -257,12 +255,12 @@ impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for 
             error_color,
         } = self;
         let hovered = Mutable::new(false);
-        // TODO: more intelligent way to get this height? waiting for node to reach "full size" is pretty cringe
-        // TODO: where did this 3. come from ?
-        let expected_tooltip_height =
-            font_size.get() + padding.get() + border_width.get() * 2. + 3.;
+        // TODO: more intelligent way to get this height? waiting for node to reach "full size" is pretty
+        // cringe TODO: where did this 3. come from ?
+        let expected_tooltip_height = font_size.get() + padding.get() + border_width.get() * 2. + 3.;
         let blocked_tooltip = Arc::new(blocked_tooltip);
-        // TODO: `Stack` does not play well with flex column, using an `El` allows us to avoid managing the height entirely
+        // TODO: `Stack` does not play well with flex column, using an `El` allows us to avoid managing the
+        // height entirely
         el
         .child(
             // TODO: should be able to DRY most of the display element for the dropdown option elements
@@ -470,10 +468,7 @@ impl<T> Dropdown<T> {
         self.update_raw_el(|raw_el| raw_el.hold_tasks([syncer]))
     }
 
-    pub fn option_handler_system<Marker>(
-        self,
-        handler: impl IntoSystem<In<usize>, (), Marker> + Send + 'static,
-    ) -> Self
+    pub fn option_handler_system<Marker>(self, handler: impl IntoSystem<In<usize>, (), Marker> + Send + 'static) -> Self
     where
         Self: ElementWrapper,
     {
@@ -488,10 +483,7 @@ impl<T> Dropdown<T> {
         })
     }
 
-    pub fn option_handler(
-        self,
-        mut option_handler: impl FnMut(usize) + Send + Sync + 'static,
-    ) -> Self
+    pub fn option_handler(self, mut option_handler: impl FnMut(usize) + Send + Sync + 'static) -> Self
     where
         Self: ElementWrapper,
     {

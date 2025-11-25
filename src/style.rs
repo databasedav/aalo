@@ -42,15 +42,12 @@ pub(crate) fn sub(x: f32) -> impl FnMut(f32) -> f32 {
     move |y| y - x
 }
 
-pub fn font_size_style<E: Element>(
-    font_size: impl Signal<Item = f32> + Send + 'static,
-) -> impl FnOnce(E) -> E {
+pub fn font_size_style<E: Element>(font_size: impl Signal<Item = f32> + Send + 'static) -> impl FnOnce(E) -> E {
     |el| {
         el.update_raw_el(|raw_el| {
-            raw_el.on_signal_with_component::<_, TextFont>(
-                font_size.dedupe(),
-                |mut text_font, font_size| text_font.font_size = font_size,
-            )
+            raw_el.on_signal_with_component::<_, TextFont>(font_size.dedupe(), |mut text_font, font_size| {
+                text_font.font_size = font_size
+            })
         })
     }
 }
@@ -62,39 +59,30 @@ pub fn text_style<E: Element>(
     |el| {
         el.update_raw_el(|raw_el| {
             raw_el
-                .on_signal_with_component::<_, TextFont>(
-                    font_size.dedupe(),
-                    |mut text_font, font_size| {
-                        text_font.font_size = font_size;
-                    },
-                )
+                .on_signal_with_component::<_, TextFont>(font_size.dedupe(), |mut text_font, font_size| {
+                    text_font.font_size = font_size;
+                })
                 .component_signal(color.dedupe().map(TextColor))
         })
     }
 }
 
-pub fn column_style<E: Element>(
-    row_gap: impl Signal<Item = f32> + Send + 'static,
-) -> impl FnOnce(E) -> E {
+pub fn column_style<E: Element>(row_gap: impl Signal<Item = f32> + Send + 'static) -> impl FnOnce(E) -> E {
     |el| {
         el.update_raw_el(|raw_el| {
-            raw_el.on_signal_with_component::<_, Node>(
-                row_gap.dedupe().map(Val::Px),
-                |mut node, row_gap| node.row_gap = row_gap,
-            )
+            raw_el.on_signal_with_component::<_, Node>(row_gap.dedupe().map(Val::Px), |mut node, row_gap| {
+                node.row_gap = row_gap
+            })
         })
     }
 }
 
-pub fn row_style<E: Element>(
-    column_gap: impl Signal<Item = f32> + Send + 'static,
-) -> impl FnOnce(E) -> E {
+pub fn row_style<E: Element>(column_gap: impl Signal<Item = f32> + Send + 'static) -> impl FnOnce(E) -> E {
     |el| {
         el.update_raw_el(|raw_el: RawHaalkaEl| {
-            raw_el.on_signal_with_component::<_, Node>(
-                column_gap.dedupe().map(Val::Px),
-                |mut node, column_gap| node.column_gap = column_gap,
-            )
+            raw_el.on_signal_with_component::<_, Node>(column_gap.dedupe().map(Val::Px), |mut node, column_gap| {
+                node.column_gap = column_gap
+            })
         })
     }
 }
@@ -106,20 +94,17 @@ pub fn padding_style<E: RawElWrapper>(
     let edges = edges.into_iter().collect::<Vec<_>>();
     move |el| {
         el.update_raw_el(|raw_el| {
-            raw_el.on_signal_with_component::<_, Node>(
-                padding.dedupe().map(Val::Px),
-                move |mut node, p| {
-                    let padding = &mut node.padding;
-                    for edge in edges.iter() {
-                        match edge {
-                            BoxEdge::Top => padding.top = p,
-                            BoxEdge::Bottom => padding.bottom = p,
-                            BoxEdge::Left => padding.left = p,
-                            BoxEdge::Right => padding.right = p,
-                        }
+            raw_el.on_signal_with_component::<_, Node>(padding.dedupe().map(Val::Px), move |mut node, p| {
+                let padding = &mut node.padding;
+                for edge in edges.iter() {
+                    match edge {
+                        BoxEdge::Top => padding.top = p,
+                        BoxEdge::Bottom => padding.bottom = p,
+                        BoxEdge::Left => padding.left = p,
+                        BoxEdge::Right => padding.right = p,
                     }
-                },
-            )
+                }
+            })
         })
     }
 }
@@ -131,19 +116,16 @@ pub fn left_bordered_style<E: Element>(
 ) -> impl FnOnce(E) -> E {
     |el| {
         el.update_raw_el(|raw_el| {
-            raw_el.on_signal_with_component::<_, Node>(
-                border_width.dedupe().map(Val::Px),
-                |mut node, width| node.border.left = width,
-            )
+            raw_el.on_signal_with_component::<_, Node>(border_width.dedupe().map(Val::Px), |mut node, width| {
+                node.border.left = width
+            })
         })
         .apply(border_color_style(border_color))
         .apply(margin_style([BoxEdge::Bottom], padding.map(div(2.))))
     }
 }
 
-pub fn square_style<E: Element>(
-    size: impl Signal<Item = f32> + Send + Sync + 'static,
-) -> impl FnOnce(E) -> E {
+pub fn square_style<E: Element>(size: impl Signal<Item = f32> + Send + Sync + 'static) -> impl FnOnce(E) -> E {
     move |el| {
         let size = size.dedupe().broadcast();
         el.apply(height_style(size.signal().map(Val::Px)))
@@ -183,35 +165,23 @@ pub fn background_style<E: Element>(
 ) -> impl FnOnce(E) -> E {
     |el| {
         el.update_raw_el(|raw_el| {
-            raw_el.component_signal::<BackgroundColor, _>(
-                background_color.dedupe().map(BackgroundColor),
-            )
+            raw_el.component_signal::<BackgroundColor, _>(background_color.dedupe().map(BackgroundColor))
         })
     }
 }
 
-pub fn height_style<E: Element>(
-    height: impl Signal<Item = Val> + Send + 'static,
-) -> impl FnOnce(E) -> E {
+pub fn height_style<E: Element>(height: impl Signal<Item = Val> + Send + 'static) -> impl FnOnce(E) -> E {
     |el| {
         el.update_raw_el(|raw_el| {
-            raw_el.on_signal_with_component::<_, Node>(
-                height.dedupe(),
-                |mut node, height| node.height = height,
-            )
+            raw_el.on_signal_with_component::<_, Node>(height.dedupe(), |mut node, height| node.height = height)
         })
     }
 }
 
-pub fn width_style<E: Element>(
-    width: impl Signal<Item = Val> + Send + 'static,
-) -> impl FnOnce(E) -> E {
+pub fn width_style<E: Element>(width: impl Signal<Item = Val> + Send + 'static) -> impl FnOnce(E) -> E {
     |el| {
         el.update_raw_el(|raw_el| {
-            raw_el.on_signal_with_component::<_, Node>(
-                width.dedupe(),
-                |mut node, width| node.width = width,
-            )
+            raw_el.on_signal_with_component::<_, Node>(width.dedupe(), |mut node, width| node.width = width)
         })
     }
 }
@@ -243,15 +213,10 @@ pub fn border_color_style<E: Element>(
     }
 }
 
-pub fn left_style<E: Element>(
-    left: impl Signal<Item = f32> + Send + 'static,
-) -> impl FnOnce(E) -> E {
+pub fn left_style<E: Element>(left: impl Signal<Item = f32> + Send + 'static) -> impl FnOnce(E) -> E {
     |el| {
         el.update_raw_el(|raw_el| {
-            raw_el.on_signal_with_component::<_, Node>(
-                left.dedupe().map(Val::Px),
-                |mut node, left| node.left = left,
-            )
+            raw_el.on_signal_with_component::<_, Node>(left.dedupe().map(Val::Px), |mut node, left| node.left = left)
         })
     }
 }
@@ -259,10 +224,7 @@ pub fn left_style<E: Element>(
 pub fn top_style<E: Element>(top: impl Signal<Item = f32> + Send + 'static) -> impl FnOnce(E) -> E {
     |el| {
         el.update_raw_el(|raw_el| {
-            raw_el
-                .on_signal_with_component::<_, Node>(top.dedupe().map(Val::Px), |mut node, top| {
-                    node.top = top
-                })
+            raw_el.on_signal_with_component::<_, Node>(top.dedupe().map(Val::Px), |mut node, top| node.top = top)
         })
     }
 }
@@ -358,20 +320,17 @@ pub fn margin_style<E: Element>(
     let edges = edges.into_iter().collect::<Vec<_>>();
     move |el| {
         el.update_raw_el(|raw_el| {
-            raw_el.on_signal_with_component::<_, Node>(
-                margin.dedupe().map(Val::Px),
-                move |mut node, m| {
-                    let margin = &mut node.margin;
-                    for edge in edges.iter() {
-                        match edge {
-                            BoxEdge::Top => margin.top = m,
-                            BoxEdge::Bottom => margin.bottom = m,
-                            BoxEdge::Left => margin.left = m,
-                            BoxEdge::Right => margin.right = m,
-                        }
+            raw_el.on_signal_with_component::<_, Node>(margin.dedupe().map(Val::Px), move |mut node, m| {
+                let margin = &mut node.margin;
+                for edge in edges.iter() {
+                    match edge {
+                        BoxEdge::Top => margin.top = m,
+                        BoxEdge::Bottom => margin.bottom = m,
+                        BoxEdge::Left => margin.left = m,
+                        BoxEdge::Right => margin.right = m,
                     }
-                },
-            )
+                }
+            })
         })
     }
 }
@@ -390,15 +349,14 @@ pub fn move_style<E: Element>(
 ) -> impl FnOnce(E) -> E {
     move |el| {
         el.update_raw_el(move |raw_el| {
-            raw_el.on_signal_with_component::<_, Node>(
-                magnitude.dedupe().map(Val::Px),
-                move |mut node, magnitude| match move_ {
+            raw_el.on_signal_with_component::<_, Node>(magnitude.dedupe().map(Val::Px), move |mut node, magnitude| {
+                match move_ {
                     Move_::Up => node.top = magnitude.neg(),
                     Move_::Down => node.top = magnitude,
                     Move_::Left => node.left = magnitude.neg(),
                     Move_::Right => node.left = magnitude,
-                },
-            )
+                }
+            })
         })
     }
 }
