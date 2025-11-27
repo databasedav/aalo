@@ -222,34 +222,31 @@ fn search_input_shared_properties(
     placeholder: impl Signal<Item = &'static str> + Send + Sync + 'static,
 ) -> impl FnOnce(TextInputAlignmentWrapper) -> El<Node> {
     move |input| {
-        El::<Node>::new()
-            .child(
-                input
-                    .apply(border_color_style(
-                        clone!((highlighted_color, unhighlighted_color, border_color) map_ref! {
-                            let &hovered = hovered.signal(),
-                            let &focused = focused.signal() => move {
-                                if focused {
-                                    highlighted_color.clone()
-                                } else if hovered {
-                                    unhighlighted_color.clone()
-                                } else {
-                                    border_color.clone()
-                                }
-                            }
-                        })
-                        .switch(|color| color.signal()),
-                    ))
-                    // .on_focused_change_with_system(|In((entity, focused)), mut text_input_queues: Query<&mut
-                    // TextInputQueue>| {     let mut text_input_queue =
-                    // text_input_queues.get_mut(entity).unwrap();     text_input_queue.
-                    // add(TextInputAction::) })
+        input
+            .apply(border_color_style(
+                clone!((highlighted_color, unhighlighted_color, border_color) map_ref! {
+                    let &hovered = hovered.signal(),
+                    let &focused = focused.signal() => move {
+                        if focused {
+                            highlighted_color.clone()
+                        } else if hovered {
+                            unhighlighted_color.clone()
+                        } else {
+                            border_color.clone()
+                        }
+                    }
+                })
+                .switch(|color| color.signal()),
+            ))
+            .with_text_input(|text_input| {
+                text_input
+                    .cursor(CursorIcon::System(SystemCursorIcon::Text))
                     .update_raw_el(|raw_el| {
                         raw_el.observe(
                             |event: Trigger<OnInsert, TextInputNode>,
                              mut buffers: Query<&mut TextInputBuffer>,
                              mut text_input_pipeline: ResMut<TextInputPipeline>| {
-                                if let Ok(mut buffer) = buffers.get_mut(event.target().entity()) {
+                                if let Ok(mut buffer) = buffers.get_mut(event.target()) {
                                     let font_system = &mut text_input_pipeline.font_system;
                                     let TextInputBuffer { editor, .. } = &mut *buffer;
                                     let mut editor = editor.borrow_with(font_system);
@@ -269,25 +266,18 @@ fn search_input_shared_properties(
                             },
                         )
                     })
-                    .cursor(CursorIcon::System(SystemCursorIcon::Text))
-                    // .attrs(
-                    //     base_text_attrs()
-                    //         .color_signal(
-                    //             map_bool_signal(focused.signal(), highlighted_color, unhighlighted_color)
-                    //             .map(Some)
-                    //         ),
-                    // )
-                    .with_text_input(|text_input| {
-                        text_input.with_text_input_node(|mut node| {
-                            node.mode = TextInputMode::SingleLine;
-                        })
-                    }), /* .scroll_disabled()
-                         * TODO: https://github.com/Dimchikkk/bevy_cosmic_edit/issues/171
-                         * .placeholder(Placeholder::new().text("search").attrs(TextAttrs::new().
-                         * color_signal(tertiary_background_color.signal().map(Some))))
-                         * .text_position_signal(padding.signal().map(|padding| CosmicTextAlign::Left { padding:
-                         * padding.round() as i32 })) */
-            )
+                    .with_text_input_node(|mut node| {
+                        node.mode = TextInputMode::SingleLine;
+                    })
+                    .text_color_signal(
+                        map_bool_signal(focused.signal(), highlighted_color, unhighlighted_color).map(TextColor),
+                    )
+                // .on_signal_with_system(padding.signal(), |mut node, padding| node.width =
+                // ) .text_position_signal(padding.signal().
+                // map(|padding| CosmicTextAlign::Left { padding: padding.round() as i32 }))
+            })
+            .into_el()
+            // TODO: replace with built-in text input placeholder when available
             .child(
                 El::<Node>::new()
                     .visibility_signal(text.signal_ref(String::is_empty).dedupe().map(|visible| {
@@ -302,6 +292,9 @@ fn search_input_shared_properties(
                     .apply(padding_style(BoxEdge::ALL, padding.signal()))
                     .child(
                         El::<Text>::new()
+                            .with_node(|mut node| {
+                                node.height = Val::Percent(100.);
+                            })
                             .text_font(TextFont::from_font_size(font_size.get()))
                             .text_font_signal(font_size.signal().map(TextFont::from_font_size))
                             .text_color_signal(tertiary_background_color.signal().map(TextColor))
@@ -796,7 +789,7 @@ impl ElementWrapper for Inspector {
         let viewport_height = Mutable::new(0.);
         let inspector_hovered = Mutable::new(false);
         let scrollbar_height_option: Mutable<Option<f32>> = Mutable::new(None);
-        let show_search = Mutable::new(false);
+        let show_search = Mutable::new(true);
         let search_focused = Mutable::new(false);
         let show_targeting = Mutable::new(false);
         let first_target_focused = Mutable::new(false);
@@ -1288,7 +1281,7 @@ impl ElementWrapper for Inspector {
                                                     Text3d::new("aalo"),
                                                     Text3dStyling {
                                                         font: "FiraMono".into(),
-                                                        weight: Weight::MEDIUM,
+                                                        weight: Weight::MEDIUM.into(),
                                                         size: DEFAULT_FONT_SIZE + 2.,
                                                         uv1: (GlyphMeta::RowX, GlyphMeta::ColY),
                                                         ..Default::default()
@@ -1336,10 +1329,10 @@ impl ElementWrapper for Inspector {
         )
         .item(
             Stack::<Node>::new()
-                 .with_node(|mut node| {
-            node.width = Val::Percent(100.);
-            node.height = Val::Percent(100.);
-        })
+                .with_node(|mut node| {
+                    node.width = Val::Percent(100.);
+                    node.height = Val::Percent(100.);
+                })
                 // inspector column
                 .layer(
                     Column::<Node>::new()
@@ -1423,10 +1416,10 @@ impl ElementWrapper for Inspector {
                         .item_signal(
                             expanded.signal().dedupe().map_true(clone!((padding, border_width, hovered, tertiary_background_color, border_color, font_size, primary_background_color, highlighted_color, unhighlighted_color, row_gap, secondary_background_color, column_gap) move || {
                                 Column::<Node>::new()
-                                 .with_node(|mut node| {
-            node.width = Val::Percent(100.);
-            node.height = Val::Percent(100.);
-        })
+                                .with_node(|mut node| {
+                                    node.width = Val::Percent(100.);
+                                    node.height = Val::Percent(100.);
+                                })
                                 .apply(move_style(Move_::Right, padding.signal()))
                                 .apply(left_bordered_style(border_width.signal(), map_bool_signal(hovered.signal(), tertiary_background_color.clone(), border_color.clone()), padding.signal()))
                                 .items_signal_vec({
@@ -1481,8 +1474,8 @@ impl ElementWrapper for Inspector {
                                             .unhighlighted_color_signal(unhighlighted_color.signal())
                                             .into_el()
                                             .with_node(|mut node| {
-            node.width = Val::Percent(100.);
-        })
+                                                node.width = Val::Percent(100.);
+                                            })
                                         }))
                                 })
                             }))
@@ -1515,9 +1508,9 @@ impl ElementWrapper for Inspector {
                             expanded.signal().dedupe().map_true(clone!((padding, border_width, hovered, tertiary_background_color, border_color, highlighted_color, unhighlighted_color, row_gap, column_gap) move || {
                                 Column::<Node>::new()
                                 .with_node(|mut node| {
-            node.width = Val::Percent(100.);
-            node.height = Val::Percent(100.);
-        })
+                                    node.width = Val::Percent(100.);
+                                    node.height = Val::Percent(100.);
+                                })
                                 .apply(move_style(Move_::Right, padding.signal()))
                                 .apply(left_bordered_style(border_width.signal(), map_bool_signal(hovered.signal(), tertiary_background_color.clone(), border_color.clone()), padding.signal()))
                                 .items_signal_vec({
@@ -1567,8 +1560,8 @@ impl ElementWrapper for Inspector {
                             expanded.signal().dedupe().map_true(clone!((padding, border_width, hovered, tertiary_background_color, border_color, highlighted_color, unhighlighted_color, row_gap, font_size, primary_background_color, column_gap, padding) move || {
                                 Column::<Node>::new()
                                 .with_node(|mut node| {
-            node.width = Val::Percent(100.);
-        })
+                                    node.width = Val::Percent(100.);
+                                })
                                 .apply(move_style(Move_::Right, padding.signal()))
                                 .apply(left_bordered_style(border_width.signal(), map_bool_signal(hovered.signal(), tertiary_background_color.clone(), border_color.clone()), padding.signal()))
                                 .items_signal_vec({
@@ -1611,9 +1604,10 @@ impl ElementWrapper for Inspector {
                                         .highlighted_color_signal(highlighted_color.signal())
                                         .unhighlighted_color_signal(unhighlighted_color.signal())
                                         .into_el()
-.with_node(|mut node| {
-            node.width = Val::Percent(100.);
-        })                                    }))
+                                        .with_node(|mut node| {
+                                            node.width = Val::Percent(100.);
+                                        })
+                                    }))
                                 })
                             }))
                         )
@@ -1791,25 +1785,45 @@ impl ElementWrapper for Inspector {
                         .apply(border_color_style(border_color.signal()))
                         .item(
                             El::<Node>::new()
+                            .with_node(|mut node| {
+                                node.height = Val::Px(100.);
+                            })
                             .apply(left_bordered_style(border_width.signal(), map_bool_signal(signal_or!(hovered.signal(), search_focused.signal()).dedupe(), tertiary_background_color.clone(), border_color.clone()), padding.signal()))
                             .apply(padding_style([BoxEdge::Left], padding.signal()))
                             .child(
-                                base_text_input(search.clone(), identity, hovered.clone(), search_focused.clone(), None)
-                                .with_text_input(|text_input| text_input.on_change_sync(search.clone()))
-                                .update_raw_el(|raw_el| raw_el.on_spawn(clone!((search_focused) move |_, _| search_focused.set(true))))
-                                .apply(
-                                    search_input_shared_properties(
-                                        hovered.clone(),
-                                        search_focused.clone(),
-                                        highlighted_color.clone(),
-                                        border_color.clone(),
-                                        unhighlighted_color.clone(),
-                                        padding.clone(),
-                                        font_size.clone(),
-                                        search.clone(),
-                                        tertiary_background_color.clone(),
-                                        always("search"),
+                                El::<Node>::new()
+                                .with_node(|mut node| {
+                                    node.height = Val::Px(100.);
+                                    node.width = Val::Px(100.);
+                                })
+                                .child(
+                                    base_text_input(search.clone(), identity, hovered.clone(), search_focused.clone(), None)
+                                    .with_text_input(|text_input| text_input.on_change_sync(search.clone()))
+                                    .update_raw_el(|raw_el| raw_el
+                                        .with_component::<Node>(|mut node| {
+                                            node.height = Val::Px(100.);
+                                            node.width = Val::Px(100.);
+                                        })
+                                        .on_spawn(clone!((search_focused) move |_, _| search_focused.set(true)))
                                     )
+                                    .apply(
+                                        search_input_shared_properties(
+                                            hovered.clone(),
+                                            search_focused.clone(),
+                                            highlighted_color.clone(),
+                                            border_color.clone(),
+                                            unhighlighted_color.clone(),
+                                            padding.clone(),
+                                            font_size.clone(),
+                                            search.clone(),
+                                            tertiary_background_color.clone(),
+                                            always("search"),
+                                        )
+                                    )
+                                    .with_node(|mut node| {
+                                        node.height = Val::Px(100.);
+                                        node.width = Val::Px(100.);
+                                    })
                                 )
                                 .child(
                                     El::<Node>::new()
@@ -4366,30 +4380,33 @@ where
     let wrapper = wrapper.unwrap_or_default();
     wrapper
         .update_raw_el(|raw_el| {
-            raw_el.on_signal_with_component::<_, Node>(
-                text_input_height_signal(font_size.signal(), border_width.signal(), padding.signal()).map(Val::Px),
-                |mut node, height| node.height = height,
-            )
+            raw_el
+                .with_component::<Node>(|mut node| node.width = Val::Percent(100.))
+                .on_signal_with_component::<_, Node>(
+                    text_input_height_signal(font_size.signal(), border_width.signal(), padding.signal()).map(Val::Px),
+                    |mut node, height| node.height = height,
+                )
         })
         .hovered_sync(hovered.clone())
         .with_text_input(move |text_input| {
             text_input
+                .with_node(|mut node| {
+                    node.top = Val::Px(TEXT_INPUT_HEIGHT_JITTER_BUFFER / 2.);
+                    node.width = Val::Percent(100.);
+                })
+                .on_signal_with_node(
+                    text_input_height_signal(
+                        font_size.signal().map(add(TEXT_INPUT_HEIGHT_JITTER_BUFFER)),
+                        always(0.),
+                        always(0.),
+                    )
+                    .map(Val::Px),
+                    |mut node, height| node.height = height,
+                )
                 .text_signal(value.signal_cloned().map(formatter))
                 .focus_signal(focused.signal().dedupe())
                 .focused_sync(focused.clone())
-                .update_raw_el(|raw_el| {
-                    raw_el
-                        .with_component::<Node>(|mut node| node.top = Val::Px(TEXT_INPUT_HEIGHT_JITTER_BUFFER / 2.))
-                        .on_signal_with_component::<_, Node>(
-                            text_input_height_signal(
-                                font_size.signal().map(add(TEXT_INPUT_HEIGHT_JITTER_BUFFER)),
-                                always(0.),
-                                always(0.),
-                            )
-                            .map(Val::Px),
-                            |mut node, height| node.height = height,
-                        )
-                })
+                .update_raw_el(|raw_el| raw_el)
                 .on_click_outside_with_system(
                     |In((entity, _)), mut focused_option: ResMut<InputFocus>, _commands: Commands| {
                         if focused_option.0 == Some(entity) {
@@ -4453,26 +4470,27 @@ impl<T: Send + Sync + PartialEq + Reflect + Clone + Debug, F: Fn(T) -> String + 
                 entity.insert(FieldListener { handler });
             })
         })
-        // .attrs(base_text_attrs().color_signal({
-        //     let text_color_option = signal::option(self.text_color_option)
-        //         .map(Option::flatten)
-        //         .broadcast();
-        //     clone!((focused, highlighted_color, unhighlighted_color) map_ref! {
-        //         let &text_color_set = text_color_option.signal_ref(Option::is_some),
-        //         let &focused = focused.signal().dedupe(),
-        //         let &highlight = highlight.signal() => {
-        //             if text_color_set {
-        //                 text_color_option.signal().apply(boxed_sync)
-        //             } else if focused || highlight {
-        //                 highlighted_color.signal().map(Some).apply(boxed_sync)
-        //             } else {
-        //                 unhighlighted_color.signal().map(Some).apply(boxed_sync)
-        //             }
-        //         }
-        //     })
-        //     .flatten()
-        //     .dedupe()
-        // }))
+        .with_text_input(|text_input| {
+            text_input.text_color_signal({
+                let text_color_option = signal::option(self.text_color_option).map(Option::flatten).broadcast();
+                clone!((focused, highlighted_color, unhighlighted_color) map_ref! {
+                    let &text_color_set = text_color_option.signal_ref(Option::is_some),
+                    let &focused = focused.signal().dedupe(),
+                    let &highlight = highlight.signal() => {
+                        if text_color_set {
+                            text_color_option.signal().map(Option::unwrap).apply(boxed_sync)
+                        } else if focused || highlight {
+                            highlighted_color.signal().apply(boxed_sync)
+                        } else {
+                            unhighlighted_color.signal().apply(boxed_sync)
+                        }
+                    }
+                })
+                .flatten()
+                .dedupe()
+                .map(TextColor)
+            })
+        })
         .apply(border_color_style({
             let border_color_option = signal::option(self.border_color_option)
                 .map(Option::flatten)

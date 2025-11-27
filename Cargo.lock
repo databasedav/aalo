@@ -1150,9 +1150,9 @@ dependencies = [
 
 [[package]]
 name = "bevy_rich_text3d"
-version = "0.3.0"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80bf486c7e1e9921086cef1c99e33132d8d87e6efc2295a9a51dbf753db31ffc"
+checksum = "4ec2b838374d9bf50803985ecee2307f0226c9e42e82061a67da8410b772cce0"
 dependencies = [
  "bevy",
  "cosmic-text 0.14.2",

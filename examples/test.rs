@@ -11,7 +11,7 @@ fn main() {
         .add_plugins((
             DefaultPlugins.set(WindowPlugin {
                 primary_window: Some(Window {
-                    position: WindowPosition::At((3000, 360).into()),
+                    // position: WindowPosition::At((3000, 360).into()),
                     // position: WindowPosition::Centered(MonitorSelection::Primary),
                     ..default()
                 }),
@@ -94,7 +94,6 @@ fn main() {
         .register_type::<BoolVecHolder>()
         .register_type::<NonZeroHolder>()
         .add_systems(Startup, (camera, ui_root, setup))
-        // .add_systems(Update, toggle_overlay)
         .run();
 }
 
@@ -252,11 +251,3 @@ fn ui_root(world: &mut World) {
         .spawn(world);
 }
 
-// fn toggle_overlay(
-//     input: Res<ButtonInput<KeyCode>>,
-//     mut options: ResMut<bevy::dev_tools::ui_debug_overlay::UiDebugOptions>,
-// ) {
-//     if input.just_pressed(KeyCode::F1) {
-//         options.toggle();
-//     }
-// }
