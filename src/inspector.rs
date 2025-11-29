@@ -64,6 +64,7 @@ use super::{defaults::*, globals::*, reflect::*, style::*, utils::*, widgets::*}
 use crate::{impl_syncers, signal_or};
 
 // TODO: aalo text appears in the center before snapping to correct location
+// TODO: aalo text needs to retrigger position syncing when the window size is changed
 // TODO: implement frontend for at least all ui node types; how abt char, str, unit ? for unit, see
 // (resources, Time, .context), should just be a tooltip
 // TODO: dropdown z index is greater than
@@ -71,7 +72,7 @@ use crate::{impl_syncers, signal_or};
 // TODO: counters for haalka and aalo systems
 // with tooltips saying they can't be expanded because that would cause infinite recursion TODO: api
 // for only showing certain object types, and only running particular syncers if these settings are
-// such
+// such        
 // TODO: toggle inspector (actually spawn/despawn rather than just toggle visibility)
 // TODO: docs
 // TODO: states reflection
@@ -238,6 +239,7 @@ fn search_input_shared_properties(
                 })
                 .switch(|color| color.signal()),
             ))
+            .apply(padding_style([BoxEdge::Left], padding.signal()))
             .with_text_input(|text_input| {
                 text_input
                     .cursor(CursorIcon::System(SystemCursorIcon::Text))
@@ -289,12 +291,9 @@ fn search_input_shared_properties(
                     }))
                     // TODO: Stack would make more sense but it's being super annoying ...
                     .with_node(|mut node| node.position_type = PositionType::Absolute)
-                    .apply(padding_style(BoxEdge::ALL, padding.signal()))
+                    .align(Align::new().center_y())
                     .child(
                         El::<Text>::new()
-                            .with_node(|mut node| {
-                                node.height = Val::Percent(100.);
-                            })
                             .text_font(TextFont::from_font_size(font_size.get()))
                             .text_font_signal(font_size.signal().map(TextFont::from_font_size))
                             .text_color_signal(tertiary_background_color.signal().map(TextColor))
@@ -789,7 +788,7 @@ impl ElementWrapper for Inspector {
         let viewport_height = Mutable::new(0.);
         let inspector_hovered = Mutable::new(false);
         let scrollbar_height_option: Mutable<Option<f32>> = Mutable::new(None);
-        let show_search = Mutable::new(true);
+        let show_search = Mutable::new(false);
         let search_focused = Mutable::new(false);
         let show_targeting = Mutable::new(false);
         let first_target_focused = Mutable::new(false);
@@ -1776,68 +1775,57 @@ impl ElementWrapper for Inspector {
                     ) move || {
                         let hovered = Mutable::new(false);
                         Column::<Node>::new()
+                        .with_node(|mut node| node.width = Val::Percent(100.))
                         .apply(padding_style(BoxEdge::ALL, padding.signal()))
                         .global_z_index(GlobalZIndex(z_order("target/search")))
                         .apply(background_style(primary_background_color.signal()))
                         .align(Align::new().bottom())
-                        .apply(border_radius_style(BoxCorner::TOP, border_radius.signal()))
+                        .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
                         .apply(border_width_style([BoxEdge::Top], border_width.signal()))
                         .apply(border_color_style(border_color.signal()))
                         .item(
                             El::<Node>::new()
-                            .with_node(|mut node| {
-                                node.height = Val::Px(100.);
-                            })
                             .apply(left_bordered_style(border_width.signal(), map_bool_signal(signal_or!(hovered.signal(), search_focused.signal()).dedupe(), tertiary_background_color.clone(), border_color.clone()), padding.signal()))
                             .apply(padding_style([BoxEdge::Left], padding.signal()))
                             .child(
-                                El::<Node>::new()
-                                .with_node(|mut node| {
-                                    node.height = Val::Px(100.);
-                                    node.width = Val::Px(100.);
+                                base_text_input(search.clone(), identity, hovered.clone(), search_focused.clone(), None)
+                                .with_text_input(|text_input| {
+                                    text_input
+                                        .on_change_sync(search.clone())
                                 })
-                                .child(
-                                    base_text_input(search.clone(), identity, hovered.clone(), search_focused.clone(), None)
-                                    .with_text_input(|text_input| text_input.on_change_sync(search.clone()))
-                                    .update_raw_el(|raw_el| raw_el
-                                        .with_component::<Node>(|mut node| {
-                                            node.height = Val::Px(100.);
-                                            node.width = Val::Px(100.);
-                                        })
-                                        .on_spawn(clone!((search_focused) move |_, _| search_focused.set(true)))
+                                .update_raw_el(|raw_el| raw_el.on_spawn(clone!((search_focused) move |_, _| search_focused.set(true))))
+                                .apply(
+                                    search_input_shared_properties(
+                                        hovered.clone(),
+                                        search_focused.clone(),
+                                        highlighted_color.clone(),
+                                        border_color.clone(),
+                                        unhighlighted_color.clone(),
+                                        padding.clone(),
+                                        font_size.clone(),
+                                        search.clone(),
+                                        tertiary_background_color.clone(),
+                                        always("search"),
                                     )
-                                    .apply(
-                                        search_input_shared_properties(
-                                            hovered.clone(),
-                                            search_focused.clone(),
-                                            highlighted_color.clone(),
-                                            border_color.clone(),
-                                            unhighlighted_color.clone(),
-                                            padding.clone(),
-                                            font_size.clone(),
-                                            search.clone(),
-                                            tertiary_background_color.clone(),
-                                            always("search"),
-                                        )
-                                    )
-                                    .with_node(|mut node| {
-                                        node.height = Val::Px(100.);
-                                        node.width = Val::Px(100.);
-                                    })
                                 )
+                            )
+                            // TODO: Stack would make more sense but it's being super annoying ...
+                            .child(
+                                El::<Node>::new()
+                                .visibility_signal(search.signal_ref(String::is_empty).dedupe().apply(signal::not).map(|visible| if visible { Visibility::Inherited } else { Visibility::Hidden }))
+                                .with_node(|mut node| {
+                                    node.position_type = PositionType::Absolute;
+                                    // this should be a child of the input itself, but i wasn't able to align it properly there ...
+                                    node.top = Val::Px(1.);
+                                })
+                                .align(Align::new().right().center_y())
+                                .apply(padding_style([BoxEdge::Right], padding.signal()))
                                 .child(
-                                    El::<Node>::new()
-                                    .visibility_signal(search.signal_ref(String::is_empty).dedupe().apply(signal::not).map(|visible| if visible { Visibility::Inherited } else { Visibility::Hidden }))
-                                    // TODO: Stack would make more sense but it's being super annoying ...
-                                    .with_node(|mut node| node.position_type = PositionType::Absolute)
-                                    .align(Align::new().right())
-                                    .apply(padding_style(BoxEdge::ALL, padding.signal()))
-                                    .child(
-                                        El::<Text>::new()
-                                        .text_font_signal(font_size.signal().map(TextFont::from_font_size))
-                                        .text_color_signal(unhighlighted_color.signal().map(TextColor))
-                                        .text_signal(filtered_count.signal().map(|count| count.to_string()).map(Text))
-                                    )
+                                    El::<Text>::new()
+                                    .align(Align::new().top())
+                                    .text_font_signal(font_size.signal().map(TextFont::from_font_size))
+                                    .text_color_signal(unhighlighted_color.signal().map(TextColor))
+                                    .text_signal(filtered_count.signal().map(|count| count.to_string()).map(Text))
                                 )
                             )
                         )
@@ -1917,7 +1905,6 @@ impl ElementWrapper for Inspector {
                             .item({
                                 let hovered = Mutable::new(false);
                                 Column::<Node>::new()
-                                .with_node(|mut node| node.height = Val::Percent(100.))
                                 .hovered_sync(hovered.clone())
                                 .apply(
                                     left_bordered_style(
@@ -2585,7 +2572,7 @@ fn entity_header(
     .update_raw_el(move |raw_el| raw_el.on_spawn_with_system(move |In(_), entities: &Entities, archetypes: &Archetypes, components: &Components| {
         if let Some(location) = entities.get(entity)
             && let Some(archetype) = archetypes.get(location.archetype_id) {
-                // from bevy-inspector-egui https://github.com/jakobhellermann/bevy-inspector-egui/blob/b54c53046f6765aa893c975dcea00e28468d922f/crates/bevy-inspector-egui/src/utils.rs#L56-L69
+                // from bevy-inspector-egui https://github.com/jakobhellermann/bevy-inspector-egui/blob/b54c53046f6765aa893c975dcea00e28468d922f/crates/bevy_inspector_egui/src/utils.rs#L56-L69
                 let associations = &[
                     ("bevy_window::window::PrimaryWindow", "PrimaryWindow"),
                     ("bevy_core_pipeline::core_3d::camera_3d::Camera3d", "Camera3d"),
@@ -3638,7 +3625,8 @@ impl FieldElement {
                     .with_node(|mut node| {
                         node.width = Val::Percent(100.);
                         node.height = Val::Percent(100.);
-                    })                    .apply(margin_style(BoxEdge::HORIZONTAL, padding.signal()))
+                    })
+                    .apply(margin_style(BoxEdge::HORIZONTAL, padding.signal()))
                     .apply(left_bordered_style(border_width.signal(), map_bool_signal(hovered.signal(), tertiary_background_color.clone(), border_color.clone()), padding.signal()));
                     let mut custom_field_option = None;
                     if let FieldType::Field(field_) = &field_type {
@@ -4309,10 +4297,18 @@ pub fn text_input_height_signal(
 }
 
 // TODO: should remove this once bevy_ui_text_input supports vertical alignment https://github.com/ickshonpe/bevy_ui_text_input/issues/11
-#[derive(Default)]
 pub struct TextInputAlignmentWrapper {
     el: El<Node>,
     text_input: TextInput,
+}
+
+impl Default for TextInputAlignmentWrapper {
+    fn default() -> Self {
+        Self {
+            el: El::<Node>::new(),
+            text_input: TextInput::new().align(Align::new().center_y()),
+        }
+    }
 }
 
 impl ElementWrapper for TextInputAlignmentWrapper {
@@ -4330,10 +4326,7 @@ impl ElementWrapper for TextInputAlignmentWrapper {
 impl TextInputAlignmentWrapper {
     fn new() -> Self {
         #[allow(clippy::unwrap_or_default)]
-        Self {
-            el: El::<Node>::new(),
-            text_input: TextInput::new().align(Align::new().center_y()),
-        }
+        Self::default()
     }
 
     fn with_text_input(self, f: impl FnOnce(TextInput) -> TextInput) -> Self {
@@ -4357,7 +4350,7 @@ impl<T: Send + Sync + PartialEq + Reflect + Clone + Debug, F: Fn(T) -> String + 
 {
 }
 
-const TEXT_INPUT_HEIGHT_JITTER_BUFFER: f32 = 4.;
+const TEXT_INPUT_RELATIVE_LINE_HEIGHT: f32 = 1.2;
 
 pub fn base_text_input<T, F>(
     value: Mutable<T>,
@@ -4377,48 +4370,40 @@ where
     let border_width = GLOBAL_BORDER_WIDTH.clone();
     let border_color = GLOBAL_BORDER_COLOR.clone();
     let padding = GLOBAL_PADDING.clone();
-    let wrapper = wrapper.unwrap_or_default();
-    wrapper
+    let mut wrapper = wrapper
+        .unwrap_or_default()
         .update_raw_el(|raw_el| {
-            raw_el
-                .with_component::<Node>(|mut node| node.width = Val::Percent(100.))
-                .on_signal_with_component::<_, Node>(
-                    text_input_height_signal(font_size.signal(), border_width.signal(), padding.signal()).map(Val::Px),
-                    |mut node, height| node.height = height,
-                )
+            raw_el.on_signal_with_component::<_, Node>(
+                text_input_height_signal(font_size.signal(), border_width.signal(), padding.signal()).map(Val::Px),
+                |mut node, height| node.height = height,
+            )
         })
+        .cursor(CursorIcon::System(SystemCursorIcon::Text))
         .hovered_sync(hovered.clone())
         .with_text_input(move |text_input| {
             text_input
-                .with_node(|mut node| {
-                    node.top = Val::Px(TEXT_INPUT_HEIGHT_JITTER_BUFFER / 2.);
-                    node.width = Val::Percent(100.);
-                })
+                .with_node(|mut node| node.width = Val::Percent(100.))
                 .on_signal_with_node(
-                    text_input_height_signal(
-                        font_size.signal().map(add(TEXT_INPUT_HEIGHT_JITTER_BUFFER)),
-                        always(0.),
-                        always(0.),
-                    )
-                    .map(Val::Px),
-                    |mut node, height| node.height = height,
+                    font_size.signal().map(mul(TEXT_INPUT_RELATIVE_LINE_HEIGHT)),
+                    |mut node, height| {
+                        node.height = Val::Px(height);
+                        // the actual text is locked to the top of the input, move it down to compensate for the line
+                        // height
+                        node.top = Val::Px((height * TEXT_INPUT_RELATIVE_LINE_HEIGHT - height) / 2.);
+                    },
                 )
                 .text_signal(value.signal_cloned().map(formatter))
                 .focus_signal(focused.signal().dedupe())
                 .focused_sync(focused.clone())
-                .update_raw_el(|raw_el| raw_el)
-                .on_click_outside_with_system(
-                    |In((entity, _)), mut focused_option: ResMut<InputFocus>, _commands: Commands| {
-                        if focused_option.0 == Some(entity) {
-                            focused_option.0 = None
-                        }
-                    },
-                )
                 .on_signal_with_text_input_style(unhighlighted_color.signal(), |mut style, color| {
                     style.cursor_color = color
                 })
                 .on_signal_with_text_input_style(border_color.signal(), |mut style, color| {
                     style.selection_color = color
+                })
+                .with_text_input_style(|mut style| style.cursor_width = 1.)
+                .with_text_font(|mut text_font| {
+                    text_font.line_height = LineHeight::RelativeToFont(TEXT_INPUT_RELATIVE_LINE_HEIGHT)
                 })
                 .on_signal_with_text_font(font_size.signal(), |mut text_font, font_size| {
                     text_font.font_size = font_size
@@ -4426,7 +4411,18 @@ where
         })
         .apply(background_style(background_color.signal()))
         .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
-        .apply(border_width_style(BoxEdge::ALL, border_width.signal()))
+        .apply(border_width_style(BoxEdge::ALL, border_width.signal()));
+    wrapper.el = wrapper.el.on_click_outside_with_system(
+        |In((entity, _)), mut focused_option: ResMut<InputFocus>, childrens: Query<&Children>| {
+            if let Ok(children) = childrens.get(entity)
+                && let Some(&text_input) = children.first()
+                && focused_option.0 == Some(text_input)
+            {
+                focused_option.0 = None
+            }
+        },
+    );
+    wrapper
 }
 
 impl<T: Send + Sync + PartialEq + Reflect + Clone + Debug, F: Fn(T) -> String + Send + Sync + Clone + 'static>
@@ -4806,6 +4802,7 @@ const STRING_FIELD_GROW_THRESHOLD: usize = 16;
 
 pub fn string_field<T: PartialReflect + From<String> + Into<String> + Default + PartialEq + Reflect + Clone + Debug>()
 -> impl Element {
+    let padding = GLOBAL_PADDING.clone();
     TextInputField::new(T::default(), Into::into)
         .cursor(CursorIcon::System(SystemCursorIcon::Text))
         // TODO: without this initial static value, width snaps from 100% due to signal runtime lag
@@ -4825,21 +4822,19 @@ pub fn string_field<T: PartialReflect + From<String> + Into<String> + Default + 
             ))
         }))
         .into_el()
+        .apply(padding_style([BoxEdge::Left], padding.signal()))
         .with_text_input(|text_input| {
-            text_input.on_change_with_system(
-                move |In((ui_entity, text)): In<(Entity, String)>, mut field: TargetField| {
-                    field.update(ui_entity, T::from(text).to_dynamic());
-                },
-            )
+            text_input
+                // TODO: remove for multiline
+                .with_text_input_node(|mut node| node.mode = TextInputMode::SingleLine)
+                .on_change_with_system(
+                    move |In((ui_entity, text)): In<(Entity, String)>, mut field: TargetField| {
+                        field.update(ui_entity, T::from(text).to_dynamic());
+                    },
+                )
         })
         .into_el()
         .with_node(|mut node| node.width = Val::Px(INITIAL_STRING_FIELD_INPUT_WIDTH))
-    // .mode(CosmicWrap::InfiniteLine)
-    // // TODO: remove for multiline
-    // .max_lines(MaxLines(1))
-    // .text_position_signal(padding.signal().map(|padding| CosmicTextAlign::Left {
-    //     padding: padding.round() as i32,
-    // }))
 }
 
 #[derive(Clone, Component)]
