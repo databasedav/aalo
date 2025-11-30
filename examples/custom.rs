@@ -1,11 +1,13 @@
 //! register custom frontends for any type
 
 mod utils;
-use bevy_ecs::component::HookContext;
 use utils::*;
 
 use aalo::prelude::*;
-use bevy::{ecs::world::DeferredWorld, prelude::*};
+use bevy::{
+    ecs::{component::HookContext, world::DeferredWorld},
+    prelude::*,
+};
 
 fn main() {
     register_frontend("bool", custom_bool_frontend);

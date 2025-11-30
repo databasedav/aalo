@@ -4,6 +4,24 @@ the format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## unreleased
 
+### changed
+
+- upgrade to bevy 0.16
+- upgrade to haalka 0.5
+- text inputs use bevy_ui_text_input instead of bevy_cosmic_edit
+- justfile + CI migrated to centralized kaaj package
+- aalo no longer piggybacks off an available camera and just uses its own all the time
+
+### added
+
+- haalka's debug ui available in deployed examples, press F1 to activate the debug overlay
+
+### fixed
+
+- aalo header text no longer flashes in the middle of the screen at startup
+- resizing the window no longer breaks the aalo header text position
+- search and targeting windows no longer leak pointer events to elements underneath
+
 # 0.0.5 (2025-04-22)
 
 ### added

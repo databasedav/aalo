@@ -87,9 +87,10 @@ impl HighlightableText {
         let hovered = Mutable::new(false);
         let highlighted = Mutable::new(false);
         let dynamic_text = DynamicText::new()
-            .color_signal(signal::or(hovered.signal(), highlighted.signal()).map_bool_signal(
-                clone!((highlighted_color) move || highlighted_color.signal()),
-                clone!((unhighlighted_color) move || unhighlighted_color.signal()),
+            .color_signal(map_bool_signal(
+                signal::or(hovered.signal(), highlighted.signal()),
+                highlighted_color.clone(),
+                unhighlighted_color.clone(),
             ))
             .hovered_sync(hovered);
         Self {
@@ -271,19 +272,14 @@ impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for 
                 // .apply(border_width_style([BoxEdge::Bottom], show_dropdown.signal().map_false_signal(clone!((border_width) move || border_width.signal())).map(Option::unwrap_or_default)))
                 .apply(border_radius_style(BoxCorner::TOP, border_radius.signal()))
                 .apply(border_radius_style(BoxCorner::BOTTOM, show_dropdown.signal().map_false_signal(clone!((border_radius) move || border_radius.signal())).map(Option::unwrap_or_default)))
-                                            .with_node(|mut node| {
-                                node.width = Val::Percent(100.);
-                            })
-
+                .with_node(|mut node| node.width = Val::Percent(100.))
                 .apply(background_style(background_color.signal()))
                 .cursor(CursorIcon::System(SystemCursorIcon::Pointer))
                 .on_click(clone!((show_dropdown) move || flip(&show_dropdown)))
                 .hovered_sync(hovered.clone())
                 .child(
                     El::<Node>::new()
-                    .with_node(|mut node| {
-                        node.width = Val::Percent(100.);
-                    })
+                    .with_node(|mut node| node.width = Val::Percent(100.))
                     .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
                     .apply(border_style(border_width.signal(), signal::and(show_dropdown.signal(), hovered.signal()).map_bool_signal(clone!((highlighted_color) move || highlighted_color.signal()), clone!((background_color) move || background_color.signal()))))
                     .apply(padding_style(BoxEdge::ALL, padding.signal()))

@@ -68,6 +68,9 @@ use crate::{impl_syncers, signal_or};
 // TODO: filter out text input observers, e.g. they get added to the entity list when the
 // search/targeting is brought up
 //
+// TODO: normalize "box" element sizing, e.g. dropdown buttons and text inputs should have the same
+// height(?)
+//
 // TODO: implement frontend for at least all ui node types; how abt char, str, unit ? for unit, see
 // (resources, Time, .context), should just be a tooltip
 // TODO: dropdown z index is greater than headers so it appears above them when scrolling up
@@ -134,7 +137,6 @@ use crate::{impl_syncers, signal_or};
 // TODO: string field text input selection only flakily highlights entire text
 // TODO: scroll snapping when scroll to exceeds the element height
 // TODO: when input is focused, hovering it's field path has flakey cursor
-// TODO: live editing parse failures don't surface until input is unfocused https://github.com/Dimchikkk/bevy_cosmic_edit/issues/145
 // TODO: document how to make custom type views
 // TODO: multiline text input
 // TODO: popout windows
@@ -2190,7 +2192,7 @@ impl ElementWrapper for Inspector {
                 }
             })
             .observe(clone!((search_focused, show_search, show_targeting) move |_: Trigger<ShowSearch>, input_focus: Res<InputFocus>, aalo_text_inputs: Query<&AaloTextInput>| {
-                if input_focus.0.map_or(true, |focused| !aalo_text_inputs.contains(focused)) {
+                if input_focus.0.is_none_or(|focused| !aalo_text_inputs.contains(focused)) {
                     show_targeting.set_neq(false);
                     search_focused.set_neq(true);
                     show_search.set_neq(true);
@@ -2200,7 +2202,7 @@ impl ElementWrapper for Inspector {
                 show_search.set_neq(false);
             }))
             .observe(clone!((first_target_focused, show_targeting, show_search) move |_: Trigger<ShowTargeting>, input_focus: Res<InputFocus>, aalo_text_inputs: Query<&AaloTextInput>| {
-                if input_focus.0.map_or(true, |focused| !aalo_text_inputs.contains(focused)) {
+                if input_focus.0.is_none_or(|focused| !aalo_text_inputs.contains(focused)) {
                     show_search.set_neq(false);
                     first_target_focused.set_neq(true);
                     show_targeting.set_neq(true);
@@ -4330,12 +4332,7 @@ impl GlobalEventAware for TextInputAlignmentWrapper {}
 impl PointerEventAware for TextInputAlignmentWrapper {}
 impl CursorOnHoverable for TextInputAlignmentWrapper {}
 
-// pub fn base_text_attrs() -> TextAttrs {
-//     TextAttrs::new()
-//         .family(FamilyOwned::new(Family::Name("Fira Mono")))
-//         .weight(FontWeight::MEDIUM)
-// }
-
+// TODO: we need to normalize these sizes somehow
 pub fn text_input_height_signal(
     font_size: impl Signal<Item = f32> + Send + 'static,
     border_width: impl Signal<Item = f32> + Send + 'static,
@@ -6565,7 +6562,6 @@ pub(super) fn plugin(app: &mut App) {
             ),
         )
         .init_resource::<FieldPathCache>()
-        // .insert_resource(bevy_cosmic_edit::CursorPluginDisabled)
         .add_observer(
             |event: Trigger<RemoveTarget>, child_ofs: Query<&ChildOf>, mut commands: Commands| {
                 let &RemoveTarget { from } = event.event();
