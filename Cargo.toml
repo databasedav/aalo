@@ -16,7 +16,6 @@ bevy_asset = "0.16"
 bevy_color = "0.16"
 bevy_core_pipeline = "0.16"
 bevy_derive = "0.16"
-bevy_dev_tools = "0.16"
 bevy_ecs = "0.16"
 bevy_image = "0.16"
 bevy_input = "0.16"
@@ -45,9 +44,10 @@ bevy_rich_text3d = { version = "0.4", default-features = false, features = ["2d"
 [features]
 deployed_wasm_example = []
 
+debug = ["haalka/debug"]
+
 [dev-dependencies]
-bevy = { version = "0.16", features = ["bevy_dev_tools"] }
-haalka = { version = "0.5", features = ["debug"] }
+bevy = "0.16"
 
 [[example]]
 name = "custom"

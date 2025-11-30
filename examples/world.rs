@@ -7,8 +7,8 @@ use aalo::prelude::*;
 use bevy::prelude::*;
 
 fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins.set(example_window_plugin()))
+    let mut app = App::new();
+    app.add_plugins(DefaultPlugins.set(example_window_plugin()))
         .add_plugins(
             AaloPlugin::new()
                 .world()
@@ -19,8 +19,10 @@ fn main() {
             Update,
             toggle_visibility
                 .run_if(any_with_component::<InspectorMarker>.and(resource_changed::<ButtonInput<KeyCode>>)),
-        )
-        .run();
+        );
+    #[cfg(feature = "debug")]
+    app.add_plugins(haalka::utils::DebugUiPlugin);
+    app.run();
 }
 
 #[allow(clippy::eq_op)]
@@ -45,6 +47,7 @@ fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials
     ));
     commands.spawn((
         Camera3d::default(),
+        IsDefaultUiCamera,
         Transform::from_xyz(-2.0, 2.5, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 }

@@ -10,8 +10,8 @@ use bevy::{ecs::world::DeferredWorld, prelude::*};
 fn main() {
     register_frontend("bool", custom_bool_frontend);
     register_frontend("custom::CustomBoolComponent", custom_bool_frontend);
-    App::new()
-        .add_plugins(DefaultPlugins.set(example_window_plugin()))
+    let mut app = App::new();
+    app.add_plugins(DefaultPlugins.set(example_window_plugin()))
         .add_plugins(
             AaloPlugin::new()
                 .world()
@@ -19,8 +19,10 @@ fn main() {
         )
         .add_systems(Startup, setup)
         .register_type::<BoolComponent>()
-        .register_type::<CustomBoolComponent>()
-        .run();
+        .register_type::<CustomBoolComponent>();
+    #[cfg(feature = "debug")]
+    app.add_plugins(haalka::utils::DebugUiPlugin);
+    app.run();
 }
 
 #[derive(Component, Reflect, Default)]
@@ -76,5 +78,5 @@ fn custom_bool_frontend() -> impl Bundle {
 fn setup(mut commands: Commands) {
     commands.spawn((Name::new("custom bool field"), BoolComponent::default()));
     commands.spawn((Name::new("custom bool component"), CustomBoolComponent::default()));
-    commands.spawn(Camera2d);
+    commands.spawn((Camera2d, IsDefaultUiCamera));
 }
