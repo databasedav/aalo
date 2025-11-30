@@ -64,26 +64,29 @@ use super::{defaults::*, globals::*, reflect::*, style::*, utils::*, widgets::*}
 use crate::{impl_syncers, signal_or};
 
 // TODO: aalo text appears in the center before snapping to correct location
-// TODO: aalo text needs to retrigger position syncing when the window size is changed
+//
+// TODO: filter out text input observers, e.g. they get added to the entity list when the
+// search/targeting is brought up
+//
 // TODO: implement frontend for at least all ui node types; how abt char, str, unit ? for unit, see
 // (resources, Time, .context), should just be a tooltip
-// TODO: dropdown z index is greater than
-// headers so it appears above them when scrolling up
-// TODO: counters for haalka and aalo systems
-// with tooltips saying they can't be expanded because that would cause infinite recursion TODO: api
-// for only showing certain object types, and only running particular syncers if these settings are
-// such        
+// TODO: dropdown z index is greater than headers so it appears above them when scrolling up
+// TODO: counters for haalka and aalo systems with tooltips saying they can't be expanded because
+// that would cause infinite recursion
+//
+// TODO: api for only showing certain object types, and only running particular syncers if these
+// settings are such
 // TODO: toggle inspector (actually spawn/despawn rather than just toggle visibility)
 // TODO: docs
 // TODO: states reflection
 // TODO: show reflect documentation on hover (or right click ?) (see bevy-inspector-egui)
-// TODO: use remote justfile from haalka + use new nickel package management to reuse all haalka
-// nickels without copying them
 
 // TODO: unnamed entities should probably just default to unsorted ?
 // TODO: typing in the searching or targeting box should disable inputs somehow ? (status quo in
-// bevy-inspector-egui is doing nothing) TODO: dragging numeric field doesn't work when number is
-// very big ? TODO: text input growing is a bit too much / looks kinda cringe (y does text end align
+// bevy-inspector-egui is doing nothing)
+//
+// TODO: dragging numeric field doesn't work when number is very big ?
+// TODO: text input growing is a bit too much / looks kinda cringe (y does text end align
 // to center ??)
 // TODO: parsed failed does not clear error on escape but does on enter
 // TODO: dropdown max width should be max width of options ?
@@ -111,9 +114,7 @@ use crate::{impl_syncers, signal_or};
 // TODO: looks like big numbers in numeric fields don't immediately resize correctly on spawn
 // (flakey)
 // TODO: non zero number impls
-// TODO: numeric field text does not center align despite using CosmicTextAlign::Center (might be related to https://github.com/Dimchikkk/bevy_cosmic_edit/issues/145)
 // TODO: nested entity targeting
-// TODO: text input font appears to be slightly smaller than normal text (bevy_cosmic_edit bug ?)
 // TODO: ease scrollbar disappear and double click collapsing
 // TODO: consolidate entity element and field element (a lot of stuff is the same)
 // TODO: make text selectable
@@ -122,8 +123,6 @@ use crate::{impl_syncers, signal_or};
 // TODO: separate font for code blocks
 // TODO: inter inspector z conflicts
 // TODO: open dropdowns z index does not respect header pinning
-// TODO: https://github.com/Dimchikkk/bevy_cosmic_edit/issues/145 prevents much of the expected text input styling to react as expected
-// TODO: search/targeting input placeholders don't clip to the input (should be addressed by https://github.com/Dimchikkk/bevy_cosmic_edit/issues/171)
 // TODO: pressing escape on errored text input doesn't clear the error (this only happens on debug
 // build)
 // TODO: dropdown scrollbars
@@ -274,10 +273,8 @@ fn search_input_shared_properties(
                     .text_color_signal(
                         map_bool_signal(focused.signal(), highlighted_color, unhighlighted_color).map(TextColor),
                     )
-                // .on_signal_with_system(padding.signal(), |mut node, padding| node.width =
-                // ) .text_position_signal(padding.signal().
-                // map(|padding| CosmicTextAlign::Left { padding: padding.round() as i32 }))
             })
+            .on_click(move || focused.set_neq(true))
             .into_el()
             // TODO: replace with built-in text input placeholder when available
             .child(
@@ -447,18 +444,46 @@ fn maybe_spawn_aalo_text_camera(mut world: DeferredWorld, _: HookContext) {
     });
 }
 
+fn maybe_show_aalo_text(mut world: DeferredWorld, HookContext { entity, .. }: HookContext) {
+    world.commands().queue(move |world: &mut World| {
+        let _ = world.run_system_once(
+            move |child_ofs: Query<&ChildOf>,
+                  data: Query<&Visibility, With<InspectorMarker>>,
+                  aalo_texts: Query<&AaloText>,
+                  mut commands: Commands| {
+                for ancestor in child_ofs.iter_ancestors(entity) {
+                    if let Ok(&visibility) = data.get(ancestor) {
+                        if !matches!(visibility, Visibility::Hidden)
+                            && let Ok(&AaloText(entity)) = aalo_texts.get(entity)
+                            && let Ok(mut entity) = commands.get_entity(entity)
+                        {
+                            entity.insert(visibility);
+                        }
+                        break;
+                    }
+                }
+            },
+        );
+    });
+}
+
+#[derive(Component, Default)]
+#[component(on_remove = maybe_show_aalo_text)]
+struct WaitForAaloTextPositionSync;
+
 #[derive(Component)]
 #[component(
     on_add = maybe_spawn_aalo_text_camera,
     on_remove = aalo_text_on_remove,
 )]
+#[require(WaitForAaloTextPositionSync)]
 struct AaloText(Entity);
 
 #[allow(clippy::type_complexity)]
 fn forward_aalo_text_visibility(
     data: Query<(Entity, &Visibility), (With<InspectorMarker>, Changed<Visibility>)>,
     childrens: Query<&Children>,
-    aalo_texts: Query<&AaloText>,
+    aalo_texts: Query<&AaloText, Without<WaitForAaloTextPositionSync>>,
     mut commands: Commands,
 ) {
     for (inspector, &visibility) in data.iter() {
@@ -474,30 +499,57 @@ fn forward_aalo_text_visibility(
 }
 
 // TODO: this isn't frame perfect, especially on low opt build
+#[allow(clippy::too_many_arguments)]
 fn sync_aalo_text_position(
-    data: Query<(&AaloText, &GlobalTransform), Changed<GlobalTransform>>,
+    aalo_texts: Query<(Entity, &AaloText, &GlobalTransform)>,
     primary_window: Single<Entity, With<PrimaryWindow>>,
     aalo_camera: Single<&Camera, With<AaloTextCamera>>,
     windows: Query<&Window>,
+    changed_transforms: Query<Entity, (With<AaloText>, Changed<GlobalTransform>)>,
+    changed_windows: Query<Entity, (With<Window>, Changed<Window>)>,
     mut transforms: Query<&mut Transform>,
+    mut commands: Commands,
 ) {
-    for (&AaloText(entity), transform) in data.iter() {
-        if let RenderTarget::Window(window) = aalo_camera.target {
-            let window_entity = match window {
-                WindowRef::Primary => *primary_window,
-                WindowRef::Entity(entity) => entity,
+    if changed_transforms.is_empty() && changed_windows.is_empty() {
+        return;
+    }
+
+    if let RenderTarget::Window(window) = aalo_camera.target {
+        let window_entity = match window {
+            WindowRef::Primary => *primary_window,
+            WindowRef::Entity(entity) => entity,
+        };
+        if let Ok(window) = windows.get(window_entity) {
+            let mut update_text_position = |entity: Entity, transform: &GlobalTransform| {
+                if let Ok(mut text_transform) = transforms.get_mut(entity) {
+                    let mut translation = transform.translation();
+                    translation.y = -translation.y; // flip y axis
+                    text_transform.translation = translation
+                        - Vec3 {
+                            x: window.width() / 2.,
+                            y: -window.height() / 2.,
+                            z: 0.,
+                        };
+                }
             };
-            if let Ok(window) = windows.get(window_entity)
-                && let Ok(mut text_transform) = transforms.get_mut(entity)
-            {
-                let mut translation = transform.translation();
-                translation.y = -translation.y; // flip y axis
-                text_transform.translation = translation
-                    - Vec3 {
-                        x: window.width() / 2.,
-                        y: -window.height() / 2.,
-                        z: 0.,
-                    };
+            let remove_wait_for_position = |entity: Entity, commands: &mut Commands| {
+                if let Ok(mut entity) = commands.get_entity(entity) {
+                    entity.remove::<WaitForAaloTextPositionSync>();
+                }
+            };
+
+            if !changed_windows.is_empty() {
+                for (entity, &AaloText(text_entity), transform) in aalo_texts.iter() {
+                    update_text_position(text_entity, transform);
+                    remove_wait_for_position(entity, &mut commands);
+                }
+            } else {
+                for entity in changed_transforms.iter() {
+                    if let Ok((entity, &AaloText(text_entity), transform)) = aalo_texts.get(entity) {
+                        update_text_position(text_entity, transform);
+                        remove_wait_for_position(entity, &mut commands);
+                    }
+                }
             }
         }
     }
@@ -1288,6 +1340,7 @@ impl ElementWrapper for Inspector {
                                                     Mesh2d::default(),
                                                     RenderLayers::layer(AALO_TEXT_CAMERA_RENDER_LAYERS),
                                                     LightRays,
+                                                    Visibility::Hidden,
                                                 ))
                                                 .on_signal_with_component::<_, Text3dStyling>(font_size.signal(), |mut text_3d_styling, font_size| {
                                                     text_3d_styling.size = font_size;
@@ -1776,6 +1829,7 @@ impl ElementWrapper for Inspector {
                         let hovered = Mutable::new(false);
                         Column::<Node>::new()
                         .with_node(|mut node| node.width = Val::Percent(100.))
+                        .update_raw_el(|raw_el| raw_el.insert(Pickable { should_block_lower: true, ..default() }))
                         .apply(padding_style(BoxEdge::ALL, padding.signal()))
                         .global_z_index(GlobalZIndex(z_order("target/search")))
                         .apply(background_style(primary_background_color.signal()))
@@ -1875,6 +1929,15 @@ impl ElementWrapper for Inspector {
                         .apply(padding_style(BoxEdge::ALL, padding.signal()))
                         .global_z_index(GlobalZIndex(z_order("target/search")))
                         .apply(background_style(primary_background_color.signal()))
+                        .update_raw_el(clone!((first_target_focused, second_target_focused, third_target_focused) move |raw_el| {
+                            raw_el
+                            .insert(Pickable { should_block_lower: true, ..default() })
+                            .on_remove(move |_, _| {
+                                for focused in [first_target_focused, second_target_focused, third_target_focused] {
+                                    focused.set_neq(false);
+                                }
+                            })
+                        }))
                         .align(Align::new().bottom())
                         .apply(border_radius_style(BoxCorner::TOP, border_radius.signal()))
                         .apply(border_width_style([BoxEdge::Top], border_width.signal()))
@@ -2035,7 +2098,6 @@ impl ElementWrapper for Inspector {
                     raw_el
                     .insert(Tooltip)
                     .insert(Visibility::Hidden)
-                    // .insert(RenderLayers::layer(x))
                     .on_spawn_with_system(move |
                         In(entity),
                         mut inspector_ancestor: InspectorAncestor,
@@ -2090,19 +2152,13 @@ impl ElementWrapper for Inspector {
             .insert(InspectorBloodline)
             .on_spawn_with_system(|
                 In(entity): In<Entity>,
-                default_ui_camera_option: Option<Single<(Entity, Option<&RenderLayers>), With<IsDefaultUiCamera>>>,
-                camera_2ds: Query<(Entity, Option<&RenderLayers>), With<Camera2d>>,
-                camera_3ds: Query<(Entity, Option<&RenderLayers>), With<Camera3d>>,
                 child_ofs: Query<&ChildOf>,
                 mut commands: Commands,
             | {
-                let (camera, render_layers_option) = default_ui_camera_option.as_deref().copied().or_else(|| camera_2ds.iter().next()).or_else(|| camera_3ds.iter().next()).unwrap_or_else(|| (commands.spawn(Camera2d).id(), None));
                 let root = child_ofs.iter_ancestors(entity).last().unwrap_or(entity);
+                let camera = commands.spawn((Camera2d, Camera { order: AALO_TEXT_CAMERA_ORDER - 1, ..default() })).id();
                 if let Ok(mut entity) = commands.get_entity(root) {
                     entity.try_insert((UiRoot, UiTargetCamera(camera)));
-                    if let Some(render_layers) = render_layers_option {
-                        entity.try_insert(render_layers.clone());
-                    }
                 }
             })
             .on_event_with_system::<Pointer<Pressed>, _>(|In((entity, _)), mut commands: Commands| commands.insert_resource(SelectedInspector(entity)))
@@ -2133,9 +2189,8 @@ impl ElementWrapper for Inspector {
                     }
                 }
             })
-            // TODO: the cross contamination here is pretty cringe, can we avoid it ? granularizing hotkey listeners is just as bad, likely requires relations
-            .observe(clone!((first_target_focused, second_target_focused, third_target_focused, search_focused, show_search, show_targeting) move |_: Trigger<ShowSearch>| {
-                if first_target_focused.get().not() & second_target_focused.get().not() & third_target_focused.get().not() {
+            .observe(clone!((search_focused, show_search, show_targeting) move |_: Trigger<ShowSearch>, input_focus: Res<InputFocus>, aalo_text_inputs: Query<&AaloTextInput>| {
+                if input_focus.0.map_or(true, |focused| !aalo_text_inputs.contains(focused)) {
                     show_targeting.set_neq(false);
                     search_focused.set_neq(true);
                     show_search.set_neq(true);
@@ -2144,8 +2199,8 @@ impl ElementWrapper for Inspector {
             .observe(clone!((show_search) move |_: Trigger<HideSearch>| {
                 show_search.set_neq(false);
             }))
-            .observe(clone!((first_target_focused, show_targeting, second_target_focused, third_target_focused, search_focused, show_search) move |_: Trigger<ShowTargeting>| {
-                if search_focused.get().not() && first_target_focused.get().not() && second_target_focused.get().not() && third_target_focused.get().not() {
+            .observe(clone!((first_target_focused, show_targeting, show_search) move |_: Trigger<ShowTargeting>, input_focus: Res<InputFocus>, aalo_text_inputs: Query<&AaloTextInput>| {
+                if input_focus.0.map_or(true, |focused| !aalo_text_inputs.contains(focused)) {
                     show_search.set_neq(false);
                     first_target_focused.set_neq(true);
                     show_targeting.set_neq(true);
@@ -4110,7 +4165,6 @@ impl<'w, 's> TargetField<'w, 's> {
             self.commands.queue(move |world: &mut World| {
                 let f = |reflect: &mut dyn Reflect| {
                     if let Ok(target) = reflect.reflect_path_mut(&field_path) {
-                        info!("TargetField applying to {}: {:?}", field_path, value);
                         let _ = target.try_apply(&*value);
                     }
                 };
@@ -4352,6 +4406,9 @@ impl<T: Send + Sync + PartialEq + Reflect + Clone + Debug, F: Fn(T) -> String + 
 
 const TEXT_INPUT_RELATIVE_LINE_HEIGHT: f32 = 1.2;
 
+#[derive(Component)]
+struct AaloTextInput;
+
 pub fn base_text_input<T, F>(
     value: Mutable<T>,
     formatter: F,
@@ -4380,8 +4437,9 @@ where
         })
         .cursor(CursorIcon::System(SystemCursorIcon::Text))
         .hovered_sync(hovered.clone())
-        .with_text_input(move |text_input| {
+        .with_text_input(clone!((focused) move |text_input| {
             text_input
+                .update_raw_el(|raw_el| raw_el.insert(AaloTextInput))
                 .with_node(|mut node| node.width = Val::Percent(100.))
                 .on_signal_with_node(
                     font_size.signal().map(mul(TEXT_INPUT_RELATIVE_LINE_HEIGHT)),
@@ -4408,14 +4466,13 @@ where
                 .on_signal_with_text_font(font_size.signal(), |mut text_font, font_size| {
                     text_font.font_size = font_size
                 })
-        })
+        }))
         .apply(background_style(background_color.signal()))
         .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
         .apply(border_width_style(BoxEdge::ALL, border_width.signal()));
     wrapper.el = wrapper.el.on_click_outside_with_system(
         |In((entity, _)), mut focused_option: ResMut<InputFocus>, childrens: Query<&Children>| {
-            if let Ok(children) = childrens.get(entity)
-                && let Some(&text_input) = children.first()
+            if let Some(&text_input) = i_born(entity, &childrens, 0)
                 && focused_option.0 == Some(text_input)
             {
                 focused_option.0 = None
@@ -4751,17 +4808,14 @@ where
                 }
             )
         }))
-        // .mode(CosmicWrap::InfiniteLine)
-        // TODO: this does not seem to work ... switch back to ::center once that works
-        // .text_position_signal(padding.signal().map(|padding| CosmicTextAlign::Left {
-        //     padding: padding.round() as i32,
-        // }))
         .with_text_input(|text_input| {
             text_input
                 .with_text_input_node(|mut node| {
-                    node.focus_on_pointer_down = false;
                     node.mode = TextInputMode::SingleLine;
                     node.justification = JustifyText::Center;
+                })
+                .on_signal_with_text_input_node(focused.signal(), |mut node, focused| {
+                    node.focus_on_pointer_down = focused;
                 })
                 .on_focused_change(clone!((value, parse_failed) move |focused| {
                     if !focused {
@@ -4783,7 +4837,6 @@ where
                     match result {
                         Ok(new) => {
                             if new != value.get() {
-                                info!("Updating numeric field to {:?}", new);
                                 parse_failed.set(None);
                                 field.update(ui_entity, new.to_dynamic());
                             }
@@ -4803,7 +4856,9 @@ const STRING_FIELD_GROW_THRESHOLD: usize = 16;
 pub fn string_field<T: PartialReflect + From<String> + Into<String> + Default + PartialEq + Reflect + Clone + Debug>()
 -> impl Element {
     let padding = GLOBAL_PADDING.clone();
+    let focused = Mutable::new(false);
     TextInputField::new(T::default(), Into::into)
+        .with_focused(focused.clone())
         .cursor(CursorIcon::System(SystemCursorIcon::Text))
         // TODO: without this initial static value, width snaps from 100% due to signal runtime lag
         .with_text_signal(Box::new(|self_, text_signal| {
@@ -4833,6 +4888,7 @@ pub fn string_field<T: PartialReflect + From<String> + Into<String> + Default + 
                     },
                 )
         })
+        .on_click(move || focused.set_neq(true))
         .into_el()
         .with_node(|mut node| node.width = Val::Px(INITIAL_STRING_FIELD_INPUT_WIDTH))
 }
@@ -6257,7 +6313,6 @@ struct LightRaysMaterial {
     entity: Entity,
 }
 
-// TODO: 0.16 migrate to weak_handle!
 const LIGHT_RAYS: Handle<Shader> = weak_handle!("7adc19fe-7867-9234-c1b0-a152880aeca1");
 
 impl LightRaysMaterial {
@@ -6295,19 +6350,8 @@ fn update_light_rays_material(
     }
 }
 
-// pub const AALO_TEXT_CAMERA_ORDER: isize =
-//     bevy_dev_tools::ui_debug_overlay::LAYOUT_DEBUG_CAMERA_ORDER - 1;
-pub const AALO_TEXT_CAMERA_ORDER: isize = 100;
-// pub static AALO_TEXT_CAMERA_RENDER_LAYERS: LazyLock<RenderLayers> = LazyLock::new(|| {
-//     RenderLayers::layer(
-//         bevy_dev_tools::ui_debug_overlay::LAYOUT_DEBUG_LAYERS
-//             .iter()
-//             .next()
-//             .unwrap()
-//             - 1,
-//     )
-// });
-pub const AALO_TEXT_CAMERA_RENDER_LAYERS: usize = 1;
+pub const AALO_TEXT_CAMERA_ORDER: isize = isize::MAX;
+pub const AALO_TEXT_CAMERA_RENDER_LAYERS: usize = 31;
 
 #[derive(Component, Default)]
 #[require(

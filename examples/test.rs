@@ -26,8 +26,8 @@ fn main() {
                 .with_inspector(|inspector| {
                     inspector
                         // .header(Some("world inspector".to_string()))
-                        // .jump_to(("FloatWrapper", "floatwrapper", ".0"))
-                        .jump_to(("entity", "0v1", "window", ".internal.physical_cursor_position.0"))
+                        .jump_to(("entity", "FloatWrapper", "floatwrapper", ".0"))
+                    // .jump_to(("entity", "0v1", "window", ".internal.physical_cursor_position.0"))
                     // .jump_to(("entity", "0v1", "window", ".internal.drag_resize_request"))
                     // .jump_to(("resource", "ambientlight", ".color.0.alpha"))
                     // .jump_to(("asset", "textureatlaslayout", "0001", ".textures[5].max"))
@@ -166,7 +166,7 @@ fn setup(
     // mut meshes: ResMut<Assets<Mesh>>,
     // mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    commands.spawn((FloatWrapper(f32::MAX - 100.), Name::new("FloatWrapper")));
+    commands.spawn((FloatWrapper(3.4), Name::new("FloatWrapper")));
     commands.spawn((BoolComponent::default(), Name::new("BoolComponent")));
     commands.spawn((TestEnum::default(), Name::new("TestEnum")));
     commands.spawn((
@@ -250,4 +250,3 @@ fn ui_root(world: &mut World) {
         )
         .spawn(world);
 }
-

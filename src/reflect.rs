@@ -25,8 +25,9 @@ pub fn reflect_component(world: &mut World, entity: Entity, component: Component
 }
 
 pub fn reflect_component_mut<'w>(
-    entity: &'w mut EntityWorldMut, /* need an `EntityWorldMut` here because the mutable component pointer is tied
-                                     * to the lifetime of the `EntityWorldMut` */
+    // need an `EntityWorldMut` here because the mutable component pointer is tied to the lifetime of the
+    // `EntityWorldMut`
+    entity: &'w mut EntityWorldMut,
     component: ComponentId,
 ) -> Option<Mut<'w, dyn Reflect>> {
     if let Some((type_id, type_registry)) = entity

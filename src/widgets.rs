@@ -281,9 +281,10 @@ impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for 
                 .hovered_sync(hovered.clone())
                 .child(
                     El::<Node>::new()
-.with_node(|mut node| {
-                                node.width = Val::Percent(100.);
-                            })                    .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
+                    .with_node(|mut node| {
+                        node.width = Val::Percent(100.);
+                    })
+                    .apply(border_radius_style(BoxCorner::ALL, border_radius.signal()))
                     .apply(border_style(border_width.signal(), signal::and(show_dropdown.signal(), hovered.signal()).map_bool_signal(clone!((highlighted_color) move || highlighted_color.signal()), clone!((background_color) move || background_color.signal()))))
                     .apply(padding_style(BoxEdge::ALL, padding.signal()))
                     .child(
@@ -310,9 +311,9 @@ impl<T: Clone + PartialEq + Display + Send + Sync + 'static> ElementWrapper for 
                 .global_z_index(GlobalZIndex(z_order("dropdown")))
                 .apply(border_color_style(border_color.signal()))
                 .with_node(|mut node| {
-                                node.width = Val::Percent(100.);
-                                node.position_type = PositionType::Absolute;
-                            })
+                    node.width = Val::Percent(100.);
+                    node.position_type = PositionType::Absolute;
+                })
                 .update_raw_el(|raw_el| raw_el.on_spawn_with_system(|In(entity), child_ofs: Query<&ChildOf>, childrens: Query<&Children>, computed_nodes: Query<&ComputedNode>, mut nodes: Query<&mut Node>| {
                     if let Ok(child_of) = child_ofs.get(entity)
                         && let Ok(siblings) = childrens.get(child_of.parent())
