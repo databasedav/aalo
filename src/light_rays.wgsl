@@ -25,15 +25,15 @@ fn rayStrength(
 
 @fragment
 fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
-    let coord = (mesh.world_position.xy / mesh.world_position.w) * 0.01;
+    let coord = (mesh.world_position.xy / mesh.world_position.w);
 
-    let rayPos1    = (vec2<f32>(-size.x / 1.2, size.x / 1.5) + translation.xy) * 0.01;
+    let rayPos1    = (vec2<f32>(-size.x / 1.2, size.x / 1.5) + translation.xy);
     let rayRefDir1 = normalize(vec2<f32>(1.0, 1.0));
     let raySeedA1  = 36.2;
     let raySeedB1  = 21.1;
     let raySpeed1  = 5.5;
 
-    let rayPos2    = (vec2<f32>(size.x / 1.2, size.x / 1.5) + translation.xy) * 0.01;
+    let rayPos2    = (vec2<f32>(size.x / 1.2, size.x / 1.5) + translation.xy);
     let rayRefDir2 = normalize(vec2<f32>(1.0, -1.0));
     let raySeedA2  = 22.4;
     let raySeedB2  = 18.0;

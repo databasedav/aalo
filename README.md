@@ -8,7 +8,7 @@
 in bengali, aalo means "light" (i.e. photons), not to be confused with haalka !
 ```
 
-[aalo](https://github.com/databasedav/aalo) is a `bevy_ui`-native inspector built with [haalka](https://github.com/databasedav/haalka) which aims to port much of the behavior of [bevy-inspector-egui](https://github.com/jakobhellermann/bevy-inspector-egui) to `bevy_ui`
+[aalo](https://github.com/databasedav/aalo) *aka bevy-inspector-haalka* is a `bevy_ui`-native inspector built with [haalka](https://github.com/databasedav/haalka) which aims to port much of the behavior of [bevy-inspector-egui](https://github.com/jakobhellermann/bevy-inspector-egui) to `bevy_ui`
 
 <div align="center">
 
@@ -43,18 +43,21 @@ app.add_plugins(AaloPlugin::new().world());
 
 ## registering custom frontends
 
-use `register_frontend`, passing in a fully qualified type path and a function that returns an `impl Bundle`, e.g. `Node`, whose `Entity` also has a `FieldListener` `Component`; `FieldListener` is just a wrapper around a `SystemId<In<Box<dyn PartialReflect>>>`, which will be forwarded the corresponding field's value every frame it is visible in the inspector, aalo will unregister the system for you when the entity is despawned
+Use `register_frontend`, passing in a fully qualified type path and a function that returns an `impl Bundle`, e.g. `Node`, whose `Entity` also has a `FieldListener` `Component`. `FieldListener` is just a wrapper around a `SystemId<In<Box<dyn PartialReflect>>>`, which will be forwarded the corresponding field's value every frame it is visible in the inspector; aalo will unregister the system for you when the entity is despawned.
 
 ```rust no_run
-fn init_custom_bool_frontend(mut world: DeferredWorld, entity: Entity, _: ComponentId) {
+register_frontend("bool", custom_bool_frontend);
+register_frontend("custom::CustomBoolComponent", custom_bool_frontend);
+
+fn init_custom_bool_frontend(mut world: DeferredWorld, HookContext { entity, .. }: HookContext) {
     let mut commands = world.commands();
     let text = commands.spawn_empty().id();
     let system = commands.register_system(
         move |In(reflect): In<Box<dyn PartialReflect>>, mut commands: Commands| {
-            let cur_option = reflect.try_downcast_ref::<bool>().copied().or_else(|| {
-                CustomBoolComponent::from_reflect(reflect.as_ref())
-                    .map(|CustomBoolComponent(cur)| cur)
-            });
+            let cur_option = reflect
+                .try_downcast_ref::<bool>()
+                .copied()
+                .or_else(|| CustomBoolComponent::from_reflect(reflect.as_ref()).map(|CustomBoolComponent(cur)| cur));
             if let Some(cur) = cur_option {
                 commands.entity(text).insert(Text(cur.to_string()));
             }
@@ -74,8 +77,8 @@ fn init_custom_bool_frontend(mut world: DeferredWorld, entity: Entity, _: Compon
                     };
                     // one of these will silently error depending on if it's the field or component
                     // target, we just do both here for the convenience of using the same frontend
-                    field.update(click.entity(), (!cur).clone_value());
-                    field.update(click.entity(), CustomBoolComponent(!cur).clone_value());
+                    field.update(click.target(), (!cur).to_dynamic());
+                    field.update(click.target(), CustomBoolComponent(!cur).to_dynamic());
                 }
             },
         );
@@ -92,12 +95,9 @@ fn custom_bool_frontend() -> impl Bundle {
 
 #[derive(Component, Reflect, Default)]
 struct CustomBoolComponent(bool);
-
-register_frontend("bool", custom_bool_frontend);
-register_frontend("custom::CustomBoolComponent", custom_bool_frontend);
 ```
 
-see [custom frontend example](https://github.com/databasedav/aalo/blob/main/examples/custom.rs)
+See [custom frontend example](https://github.com/databasedav/aalo/blob/main/examples/custom.rs)
 
 ## hotkeys
 
@@ -124,6 +124,13 @@ All examples are compiled to wasm for both webgl2 and webgpu (check [compatibili
 - [**`custom`**](https://github.com/databasedav/aalo/blob/main/examples/custom.rs) [webgl2](https://databasedav.github.io/aalo/examples/webgl2/custom/) [webgpu](https://databasedav.github.io/aalo/examples/webgpu/custom/)
 
     custom frontend for a field and a component
+
+Or run them locally with `cargo`.
+```bash
+cargo run --example world
+cargo run --example custom
+```
+Or with [`just`](https://github.com/casey/just), e.g. `just example world -r`.
 
 ## Bevy compatibility
 

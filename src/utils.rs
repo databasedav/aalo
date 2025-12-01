@@ -2,7 +2,6 @@ use bevy_ecs::{
     prelude::*,
     system::{RunSystemOnce, SystemId, SystemParam},
 };
-use bevy_hierarchy::prelude::*;
 use bevy_math::prelude::*;
 use bevy_picking::prelude::*;
 use bevy_ui::prelude::*;
@@ -30,12 +29,7 @@ macro_rules! impl_syncers {
 #[derive(Component)]
 pub struct AaloOneShotSystem;
 
-pub fn register_system<
-    I: SystemInput + 'static,
-    O: 'static,
-    M,
-    S: IntoSystem<I, O, M> + 'static,
->(
+pub fn register_system<I: SystemInput + 'static, O: 'static, M, S: IntoSystem<I, O, M> + 'static>(
     world: &mut World,
     system: S,
 ) -> SystemId<I, O> {
@@ -93,15 +87,11 @@ pub fn sync_tooltip_position(
 ) -> impl FnOnce(RawHaalkaEl) -> RawHaalkaEl {
     move |el| {
         el.observe(
-            |event: Trigger<Pointer<Enter>>,
-             mut inspector_ancestor: InspectorAncestor,
-             mut commands: Commands| {
-                if let Some(inspector) = inspector_ancestor.get(event.entity()) {
-                    if let Some(mut entity) = commands.get_entity(inspector) {
-                        entity.try_insert(TooltipTargetPosition(
-                            event.event().pointer_location.position,
-                        ));
-                    }
+            |event: Trigger<Pointer<Enter>>, mut inspector_ancestor: InspectorAncestor, mut commands: Commands| {
+                if let Some(inspector) = inspector_ancestor.get(event.target())
+                    && let Ok(mut entity) = commands.get_entity(inspector)
+                {
+                    entity.try_insert(TooltipTargetPosition(event.event().pointer_location.position));
                 }
             },
         )
@@ -110,22 +100,19 @@ pub fn sync_tooltip_position(
                   mut move_tooltip_to_position: MoveTooltipToPosition,
                   mut inspector_ancestor: InspectorAncestor,
                   mut commands: Commands| {
-                move_tooltip_to_position.move_(
-                    entity,
-                    move_.pointer_location.position,
-                    Some(expected_tooltip_height),
-                );
-                if let Some(inspector) = inspector_ancestor.get(entity) {
-                    if let Some(mut entity) = commands.get_entity(inspector) {
-                        entity.try_insert(TooltipTargetPosition(move_.pointer_location.position));
-                    }
+                move_tooltip_to_position.move_(entity, move_.pointer_location.position, Some(expected_tooltip_height));
+                if let Some(inspector) = inspector_ancestor.get(entity)
+                    && let Ok(mut entity) = commands.get_entity(inspector)
+                {
+                    entity.try_insert(TooltipTargetPosition(move_.pointer_location.position));
                 }
             },
         )
         .on_remove(|world, entity| {
             world.commands().queue(move |world: &mut World| {
                 let _ = world.run_system_once(move |tooltips: Query<&TooltipHolder>| {
-                    // needed to iterate through all of them since no components are available to target a specific inspector ? TODO
+                    // needed to iterate through all of them since no components are available to target a specific
+                    // inspector ? TODO
                     for TooltipHolder(tooltip) in tooltips.iter() {
                         let mut lock = tooltip.lock_mut();
                         if lock.as_ref().map(|tooltip| tooltip.owner) == Some(entity) {
@@ -143,7 +130,7 @@ pub struct InspectorMarker;
 
 #[derive(SystemParam)]
 pub struct InspectorAncestor<'w, 's> {
-    parents: Query<'w, 's, &'static Parent>,
+    child_ofs: Query<'w, 's, &'static ChildOf>,
     entity_inspectors: Query<'w, 's, &'static InspectorMarker>,
     cache: Local<'s, Option<Entity>>,
 }
@@ -151,7 +138,7 @@ pub struct InspectorAncestor<'w, 's> {
 impl<'w, 's> InspectorAncestor<'w, 's> {
     pub fn get(&mut self, entity: Entity) -> Option<Entity> {
         if self.cache.is_none() {
-            for ancestor in self.parents.iter_ancestors(entity) {
+            for ancestor in self.child_ofs.iter_ancestors(entity) {
                 if self.entity_inspectors.contains(ancestor) {
                     *self.cache = Some(ancestor);
                     break;
@@ -185,14 +172,8 @@ impl<'w, 's> MoveTooltipToPosition<'w, 's> {
                 }
                 return;
             };
-            if let Ok([inspector_node, mut tooltip_node]) =
-                self.nodes.get_many_mut([inspector, tooltip])
-            {
-                let top = if let Val::Px(top) = inspector_node.top {
-                    top
-                } else {
-                    0.
-                };
+            if let Ok([inspector_node, mut tooltip_node]) = self.nodes.get_many_mut([inspector, tooltip]) {
+                let top = if let Val::Px(top) = inspector_node.top { top } else { 0. };
                 let left = if let Val::Px(left) = inspector_node.left {
                     left
                 } else {
@@ -200,8 +181,7 @@ impl<'w, 's> MoveTooltipToPosition<'w, 's> {
                 };
                 // TODO: the computed node height is actually wrong sometimes ...
                 // let modifier = computed_node.size().y.max(expected_tooltip_height.unwrap_or_default());
-                tooltip_node.top =
-                    Val::Px(position.y - top - expected_tooltip_height.unwrap_or_default());
+                tooltip_node.top = Val::Px(position.y - top - expected_tooltip_height.unwrap_or_default());
                 tooltip_node.left = Val::Px(position.x - left);
             }
         }
@@ -232,13 +212,36 @@ pub struct TooltipCache<'w, 's> {
 
 impl<'w, 's> TooltipCache<'w, 's> {
     pub fn get(&mut self, entity: Entity) -> Option<Mutable<Option<TooltipData>>> {
-        if self.cache.is_none() {
-            if let Some(inspector) = self.inspector_ancestor.get(entity) {
-                if let Ok(TooltipHolder(tooltip)) = self.tooltips.get(inspector).cloned() {
-                    *self.cache = Some(tooltip);
-                }
-            }
+        if self.cache.is_none()
+            && let Some(inspector) = self.inspector_ancestor.get(entity)
+            && let Ok(TooltipHolder(tooltip)) = self.tooltips.get(inspector).cloned()
+        {
+            *self.cache = Some(tooltip);
         }
         self.cache.clone()
+    }
+}
+
+pub fn is_macos_runtime() -> bool {
+    cfg_if::cfg_if! {
+        if #[cfg(not(target_arch = "wasm32"))] {
+            cfg!(target_os = "macos")
+        } else {
+            use web_sys::window;
+
+            let win = window().expect("No global `window` exists");
+            let nav = win.navigator();
+            if let Ok(platform) = nav.platform() {
+                if platform.to_lowercase().contains("mac") {
+                    return true;
+                }
+            }
+            if let Ok(ua) = nav.user_agent() {
+                if ua.to_lowercase().contains("mac os x") {
+                    return true;
+                }
+            }
+            false
+        }
     }
 }

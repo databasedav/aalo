@@ -17,8 +17,7 @@ use inspector::*;
 
 #[allow(clippy::type_complexity)]
 struct WorldInspectorConfig {
-    inspector_transformers:
-        Mutex<Vec<Box<dyn FnOnce(Inspector) -> Inspector + Send + Sync + 'static>>>,
+    inspector_transformers: Mutex<Vec<Box<dyn FnOnce(Inspector) -> Inspector + Send + Sync + 'static>>>,
     flatten_descendants: bool,
 }
 
@@ -70,10 +69,7 @@ impl<WorldFlag> AaloPlugin<WorldFlag> {
     where
         WorldFlag: FlagSet,
     {
-        self.world_inspector_config
-            .as_mut()
-            .unwrap()
-            .flatten_descendants = true;
+        self.world_inspector_config.as_mut().unwrap().flatten_descendants = true;
         self.into_type()
     }
 
@@ -110,15 +106,14 @@ impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {
     fn build(&self, app: &mut App) {
         app.add_plugins(inspector::plugin);
         if let Some(world_inspector_config) = &self.world_inspector_config {
-            let transformers: Mutex<Vec<Box<dyn FnOnce(Inspector) -> Inspector + Send + Sync>>> =
-                Mutex::new(
-                    world_inspector_config
-                        .inspector_transformers
-                        .lock()
-                        .unwrap()
-                        .drain(..)
-                        .collect(),
-                );
+            let transformers: Mutex<Vec<Box<dyn FnOnce(Inspector) -> Inspector + Send + Sync>>> = Mutex::new(
+                world_inspector_config
+                    .inspector_transformers
+                    .lock()
+                    .unwrap()
+                    .drain(..)
+                    .collect(),
+            );
             let flatten_descendants = world_inspector_config.flatten_descendants;
             let transformers = Arc::new(transformers);
             app.add_systems(
@@ -126,8 +121,10 @@ impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {
                 clone!((transformers) move |world: &mut World| {
                         El::<Node>::new()
                             .global_z_index(GlobalZIndex(i32::MIN))
-                            .width(Val::Percent(100.))
-                            .height(Val::Percent(100.))
+                            .with_node(|mut node| {
+                                node.width = Val::Percent(100.);
+                                node.height = Val::Percent(100.);
+                            })
                             .cursor(CursorIcon::System(SystemCursorIcon::Default))
                             .child({
                                 let mut inspector = Inspector::new();
@@ -163,7 +160,7 @@ impl<WorldFlag: Send + Sync + 'static> Plugin for AaloPlugin<WorldFlag> {
 pub mod prelude {
     pub use super::AaloPlugin;
     pub use crate::{
-        inspector::{register_frontend, FieldListener, Inspector, TargetField},
+        inspector::{FieldListener, Inspector, TargetField, register_frontend},
         utils::InspectorMarker,
     };
 }

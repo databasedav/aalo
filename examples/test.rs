@@ -11,14 +11,14 @@ fn main() {
         .add_plugins((
             DefaultPlugins.set(WindowPlugin {
                 primary_window: Some(Window {
-                    position: WindowPosition::At((3000, 360).into()),
+                    // position: WindowPosition::At((3000, 360).into()),
                     // position: WindowPosition::Centered(MonitorSelection::Primary),
                     ..default()
                 }),
                 ..default()
             }),
-            bevy::dev_tools::ui_debug_overlay::DebugUiPlugin,
             HaalkaPlugin,
+            DebugUiPlugin,
             // style::plugin,
             AaloPlugin::new()
                 .world()
@@ -26,13 +26,8 @@ fn main() {
                 .with_inspector(|inspector| {
                     inspector
                         // .header(Some("world inspector".to_string()))
-                        // .jump_to(("FloatWrapper", "floatwrapper", ".0"))
-                        .jump_to((
-                            "entity",
-                            "0v1",
-                            "window",
-                            ".internal.physical_cursor_position.0",
-                        ))
+                        .jump_to(("entity", "FloatWrapper", "floatwrapper", ".0"))
+                    // .jump_to(("entity", "0v1", "window", ".internal.physical_cursor_position.0"))
                     // .jump_to(("entity", "0v1", "window", ".internal.drag_resize_request"))
                     // .jump_to(("resource", "ambientlight", ".color.0.alpha"))
                     // .jump_to(("asset", "textureatlaslayout", "0001", ".textures[5].max"))
@@ -60,8 +55,9 @@ fn main() {
                     //         .filter_signal_cloned(|&(entity, _)| {
                     //             always(entity).map_future(|entity| async move {
                     //                 let result = Mutable::new(None);
-                    //                 async_world().apply(clone!((result) move |world: &mut World| {
-                    //                     result.set(Some(world.run_system_once(|| true).ok().unwrap_or(false)));
+                    //                 async_world().apply(clone!((result) move |world: &mut World|
+                    // {
+                    // result.set(Some(world.run_system_once(|| true).ok().unwrap_or(false)));
                     //                 })).await;
                     //                 result.signal_ref(Option::is_some).wait_for(true).await;
                     //                 result.get().unwrap_or(false)
@@ -98,7 +94,6 @@ fn main() {
         .register_type::<BoolVecHolder>()
         .register_type::<NonZeroHolder>()
         .add_systems(Startup, (camera, ui_root, setup))
-        .add_systems(Update, toggle_overlay)
         .run();
 }
 
@@ -171,7 +166,7 @@ fn setup(
     // mut meshes: ResMut<Assets<Mesh>>,
     // mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    commands.spawn((FloatWrapper(f32::MAX - 100.), Name::new("FloatWrapper")));
+    commands.spawn((FloatWrapper(3.4), Name::new("FloatWrapper")));
     commands.spawn((BoolComponent::default(), Name::new("BoolComponent")));
     commands.spawn((TestEnum::default(), Name::new("TestEnum")));
     commands.spawn((
@@ -214,8 +209,10 @@ fn setup(
 
 fn ui_root(world: &mut World) {
     Column::<Node>::new()
-        .width(Val::Percent(100.))
-        .height(Val::Percent(100.))
+        .with_node(|mut node| {
+            node.width = Val::Percent(100.);
+            node.height = Val::Percent(100.);
+        })
         .cursor(CursorIcon::System(SystemCursorIcon::Default))
         .update_raw_el(|raw_el| {
             raw_el
@@ -230,7 +227,7 @@ fn ui_root(world: &mut World) {
                     bool_4: (false, default(), vec![false, true]),
                     ..default()
                 })
-                .insert(PickingBehavior {
+                .insert(Pickable {
                     should_block_lower: false,
                     ..default()
                 })
@@ -252,13 +249,4 @@ fn ui_root(world: &mut World) {
                 .item(El::<Node>::new().name("test 3")),
         )
         .spawn(world);
-}
-
-fn toggle_overlay(
-    input: Res<ButtonInput<KeyCode>>,
-    mut options: ResMut<bevy::dev_tools::ui_debug_overlay::UiDebugOptions>,
-) {
-    if input.just_pressed(KeyCode::F1) {
-        options.toggle();
-    }
 }

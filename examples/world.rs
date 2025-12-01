@@ -7,27 +7,26 @@ use aalo::prelude::*;
 use bevy::prelude::*;
 
 fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins.set(example_window_plugin()))
-        .add_plugins(AaloPlugin::new().world().with_inspector(|inspector| {
-            inspector.jump_to(("entity", "my cube", "transform", ".translation"))
-        }))
+    let mut app = App::new();
+    app.add_plugins(DefaultPlugins.set(example_window_plugin()))
+        .add_plugins(
+            AaloPlugin::new()
+                .world()
+                .with_inspector(|inspector| inspector.jump_to(("entity", "my cube", "transform", ".translation"))),
+        )
         .add_systems(Startup, setup)
         .add_systems(
             Update,
-            toggle_visibility.run_if(
-                any_with_component::<InspectorMarker>.and(resource_changed::<ButtonInput<KeyCode>>),
-            ),
-        )
-        .run();
+            toggle_visibility
+                .run_if(any_with_component::<InspectorMarker>.and(resource_changed::<ButtonInput<KeyCode>>)),
+        );
+    #[cfg(feature = "debug")]
+    app.add_plugins(haalka::utils::DebugUiPlugin);
+    app.run();
 }
 
 #[allow(clippy::eq_op)]
-fn setup(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
+fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::default().mesh().size(5.0, 5.0))),
         MeshMaterial3d(materials.add(Color::srgb(0.3, 0.5, 0.3))),
@@ -48,6 +47,7 @@ fn setup(
     ));
     commands.spawn((
         Camera3d::default(),
+        IsDefaultUiCamera,
         Transform::from_xyz(-2.0, 2.5, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 }
@@ -58,12 +58,12 @@ fn toggle_visibility(
     input: Res<ButtonInput<KeyCode>>,
     mut commands: Commands,
 ) {
-    if input.just_pressed(KeyCode::Backquote) {
-        if let Ok(visibility) = visibilities.get(*inspector) {
-            commands.entity(*inspector).insert(match visibility {
-                Visibility::Hidden => Visibility::Visible,
-                _ => Visibility::Hidden,
-            });
-        }
+    if input.just_pressed(KeyCode::Backquote)
+        && let Ok(visibility) = visibilities.get(*inspector)
+    {
+        commands.entity(*inspector).insert(match visibility {
+            Visibility::Hidden => Visibility::Visible,
+            _ => Visibility::Hidden,
+        });
     }
 }
