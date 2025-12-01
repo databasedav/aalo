@@ -4901,11 +4901,10 @@ pub fn string_field<T: PartialReflect + From<String> + Into<String> + Default + 
                             return;
                         }
                         let new = T::from(text);
-                        if new != *value.lock_ref() {
-                            if let Ok(&ChildOf(parent)) = child_ofs.get(ui_entity) {
+                        if new != *value.lock_ref()
+                            && let Ok(&ChildOf(parent)) = child_ofs.get(ui_entity) {
                                 field.update(parent, new.to_dynamic());
                             }
-                        }
                     }),
                 )
         })
