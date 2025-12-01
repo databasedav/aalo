@@ -4508,9 +4508,14 @@ impl<T: Send + Sync + PartialEq + Reflect + Clone + Debug, F: Fn(T) -> String + 
             Some(self.el),
         )
         .update_raw_el(|raw_el| {
-            raw_el.with_entity(move |mut entity| {
+            raw_el.with_entity(clone!((focused) move |mut entity| {
                 let handler = entity.world_scope(|world| {
                     register_system(world, move |In(reflect): In<Box<dyn PartialReflect>>| {
+                        // don't update the `value` mutable while focused, as the text input
+                        // is being edited directly and we don't want to snap the cursor
+                        if focused.get() {
+                            return;
+                        }
                         match reflect.try_downcast::<T>() {
                             Ok(cur) => value.set_neq(*cur),
                             Err(e) => error!(
@@ -4522,7 +4527,7 @@ impl<T: Send + Sync + PartialEq + Reflect + Clone + Debug, F: Fn(T) -> String + 
                     })
                 });
                 entity.insert(FieldListener { handler });
-            })
+            }))
         })
         .with_text_input(|text_input| {
             text_input.text_color_signal({
