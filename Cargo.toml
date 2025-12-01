@@ -1,6 +1,6 @@
 [package]
 name = "aalo"
-version = "0.0.5"
+version = "0.1.0"
 edition = "2024"
 categories = ["asynchronous", "gui", "game-development"]
 description = "aka bevy-inspector-haalka, a bevy_ui-native inspector for Bevy"

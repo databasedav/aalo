@@ -21,7 +21,7 @@ https://github.com/user-attachments/assets/1c0ca67f-c910-4795-b7cc-5cf19827c3dc
 
 ```toml
 [dependencies]
-aalo = { version = "0.0", optional = true }
+aalo = { version = "0.1", optional = true }
 
 [features]
 development = ["aalo"]
@@ -136,6 +136,7 @@ Or with [`just`](https://github.com/casey/just), e.g. `just example world -r`.
 
 |bevy|aalo|
 |-|-|
+|`0.16`|`0.1`|
 |`0.15`|`0.0`|
 
 ## license
