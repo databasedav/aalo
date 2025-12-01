@@ -245,4 +245,3 @@ pub fn is_macos_runtime() -> bool {
         }
     }
 }
-

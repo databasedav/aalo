@@ -30,6 +30,7 @@ dependencies = [
  "bevy_ui",
  "bevy_utils",
  "bevy_window",
+ "cfg-if",
  "disqualified",
  "haalka",
  "nucleo-matcher",
