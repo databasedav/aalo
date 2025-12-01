@@ -36,6 +36,7 @@ dependencies = [
  "num",
  "paste",
  "strum 0.27.2",
+ "web-sys",
 ]
 
 [[package]]

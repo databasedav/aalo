@@ -854,6 +854,9 @@ impl ElementWrapper for Inspector {
         let search_target_root_focused = Mutable::new(false);
         let targeting_target_root = Mutable::new(InspectionTargetRoot::Entity);
         let targeting_target_root_focused = Mutable::new(false);
+        if is_macos_runtime() && header.lock_ref().is_none() {
+            header.set(Some("aalo".to_string()))
+        }
         let search_task = {
             clone!((entities, resources, assets) map_ref! {
                 let &show = show_search.signal(),
@@ -1311,9 +1314,9 @@ impl ElementWrapper for Inspector {
                 .child_signal({
                     let font_size = font_size.signal().map(add(2.)).dedupe().broadcast();
                     header.signal_ref(Option::is_some).dedupe().map_bool(
-                        clone!((font_size, unhighlighted_color) move || {
+                        clone!((font_size, highlighted_color) move || {
                             El::<Text>::new()
-                            .text_color_signal(unhighlighted_color.signal().map(TextColor))
+                            .text_color_signal(highlighted_color.signal().map(TextColor))
                             .apply(font_size_style(font_size.signal()))
                             .text_signal(header.signal_cloned().map(Option::unwrap_or_default).map(Text))
                         }),

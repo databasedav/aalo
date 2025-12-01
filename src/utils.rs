@@ -221,3 +221,28 @@ impl<'w, 's> TooltipCache<'w, 's> {
         self.cache.clone()
     }
 }
+
+pub fn is_macos_runtime() -> bool {
+    cfg_if::cfg_if! {
+        if #[cfg(not(target_arch = "wasm32"))] {
+            cfg!(target_os = "macos")
+        } else {
+            use web_sys::window;
+
+            let win = window().expect("No global `window` exists");
+            let nav = win.navigator();
+            if let Ok(platform) = nav.platform() {
+                if platform.to_lowercase().contains("mac") {
+                    return true;
+                }
+            }
+            if let Ok(ua) = nav.user_agent() {
+                if ua.to_lowercase().contains("mac os x") {
+                    return true;
+                }
+            }
+            false
+        }
+    }
+}
+

@@ -5,4 +5,4 @@ rust-toolchain.toml
 index.html
 dist
 nickel/Nickel-pkg.lock
-
+.helix
