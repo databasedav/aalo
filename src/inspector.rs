@@ -4472,6 +4472,7 @@ where
         .apply(border_width_style(BoxEdge::ALL, border_width.signal()));
     wrapper.el = wrapper.el.on_click_outside_with_system(
         |In((entity, _)), mut focused_option: ResMut<InputFocus>, childrens: Query<&Children>| {
+            // TODO: use a relationship for this
             if let Some(&text_input) = i_born(entity, &childrens, 0)
                 && focused_option.0 == Some(text_input)
             {
@@ -4828,6 +4829,7 @@ where
                 }))
                 .on_change_with_system(clone!((parse_failed, value, focused) move |
                     In((ui_entity, text)): In<(Entity, String)>,
+                    child_ofs: Query<&ChildOf>,
                     mut field: TargetField
                 | {
                     if !focused.get() {
@@ -4838,7 +4840,9 @@ where
                         Ok(new) => {
                             if new != value.get() {
                                 parse_failed.set(None);
-                                field.update(ui_entity, new.to_dynamic());
+                                if let Ok(&ChildOf(parent)) = child_ofs.get(ui_entity) {
+                                    field.update(parent, new.to_dynamic());
+                                }
                             }
                         }
                         Err(e) => {
@@ -4857,7 +4861,9 @@ pub fn string_field<T: PartialReflect + From<String> + Into<String> + Default + 
 -> impl Element {
     let padding = GLOBAL_PADDING.clone();
     let focused = Mutable::new(false);
+    let value: Mutable<T> = Mutable::new(T::default());
     TextInputField::new(T::default(), Into::into)
+        .with_value(value.clone())
         .with_focused(focused.clone())
         .cursor(CursorIcon::System(SystemCursorIcon::Text))
         // TODO: without this initial static value, width snaps from 100% due to signal runtime lag
@@ -4883,9 +4889,19 @@ pub fn string_field<T: PartialReflect + From<String> + Into<String> + Default + 
                 // TODO: remove for multiline
                 .with_text_input_node(|mut node| node.mode = TextInputMode::SingleLine)
                 .on_change_with_system(
-                    move |In((ui_entity, text)): In<(Entity, String)>, mut field: TargetField| {
-                        field.update(ui_entity, T::from(text).to_dynamic());
-                    },
+                    clone!((value, focused) move |In((ui_entity, text)): In<(Entity, String)>,
+                          child_ofs: Query<&ChildOf>,
+                          mut field: TargetField| {
+                        if !focused.get() {
+                            return;
+                        }
+                        let new = T::from(text);
+                        if new != *value.lock_ref() {
+                            if let Ok(&ChildOf(parent)) = child_ofs.get(ui_entity) {
+                                field.update(parent, new.to_dynamic());
+                            }
+                        }
+                    }),
                 )
         })
         .on_click(move || focused.set_neq(true))
