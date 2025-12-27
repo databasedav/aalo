@@ -244,10 +244,10 @@ fn search_input_shared_properties(
                     .cursor(CursorIcon::System(SystemCursorIcon::Text))
                     .update_raw_el(|raw_el| {
                         raw_el.observe(
-                            |event: On<OnInsert, TextInputNode>,
+                            |event: On<Insert, TextInputNode>,
                              mut buffers: Query<&mut TextInputBuffer>,
                              mut text_input_pipeline: ResMut<TextInputPipeline>| {
-                                if let Ok(mut buffer) = buffers.get_mut(event.target()) {
+                                if let Ok(mut buffer) = buffers.get_mut(event.entity) {
                                     let font_system = &mut text_input_pipeline.font_system;
                                     let TextInputBuffer { editor, .. } = &mut *buffer;
                                     let mut editor = editor.borrow_with(font_system);
@@ -313,7 +313,7 @@ pub fn inspector_column(
 
 const DOUBLE_CLICK_TIMER: f32 = 0.5;
 
-#[derive(Event, Clone)]
+#[derive(EntityEvent, Clone)]
 pub struct DoubleClick(Entity);
 
 // TODO: replace with bevy picking native double click
@@ -332,7 +332,7 @@ pub fn trigger_double_click<Disabled: Component>(raw_el: RawHaalkaEl) -> RawHaal
                         && now - last_click_time <= DOUBLE_CLICK_TIMER
                     {
                         *last_click_time_option = None;
-                        commands.trigger_targets(DoubleClick(entity));
+                        commands.trigger(DoubleClick(entity));
                         return;
                     }
                     *last_click_time_option = Some(now);
@@ -505,11 +505,11 @@ fn forward_aalo_text_visibility(
 // TODO: this isn't frame perfect, especially on low opt build
 #[allow(clippy::too_many_arguments)]
 fn sync_aalo_text_position(
-    aalo_texts: Query<(Entity, &AaloText, &GlobalTransform)>,
+    aalo_texts: Query<(Entity, &AaloText, &UiGlobalTransform)>,
     primary_window: Single<Entity, With<PrimaryWindow>>,
     aalo_camera: Single<&Camera, With<AaloTextCamera>>,
     windows: Query<&Window>,
-    changed_transforms: Query<Entity, (With<AaloText>, Changed<GlobalTransform>)>,
+    changed_transforms: Query<Entity, (With<AaloText>, Changed<UiGlobalTransform>)>,
     changed_windows: Query<Entity, (With<Window>, Changed<Window>)>,
     mut transforms: Query<&mut Transform>,
     mut commands: Commands,
@@ -524,16 +524,15 @@ fn sync_aalo_text_position(
             WindowRef::Entity(entity) => entity,
         };
         if let Ok(window) = windows.get(window_entity) {
-            let mut update_text_position = |entity: Entity, transform: &GlobalTransform| {
+            let mut update_text_position = |entity: Entity, transform: &UiGlobalTransform| {
                 if let Ok(mut text_transform) = transforms.get_mut(entity) {
-                    let mut translation = transform.translation();
-                    translation.y = -translation.y; // flip y axis
-                    text_transform.translation = translation
-                        - Vec3 {
-                            x: window.width() / 2.,
-                            y: -window.height() / 2.,
-                            z: 0.,
-                        };
+                    // UiGlobalTransform is an Affine2, translation is Vec2
+                    let translation = transform.translation;
+                    text_transform.translation = Vec3::new(
+                        translation.x - window.width() / 2.,
+                        -translation.y + window.height() / 2., // flip y axis
+                        0.,
+                    );
                 }
             };
             let remove_wait_for_position = |entity: Entity, commands: &mut Commands| {
@@ -564,11 +563,12 @@ pub struct WaitUntilNonZeroTransform;
 
 #[allow(clippy::type_complexity)]
 fn wait_until_non_zero_transform(
-    data: Query<(Entity, &GlobalTransform), (With<WaitUntilNonZeroTransform>, Changed<GlobalTransform>)>,
+    data: Query<(Entity, &UiGlobalTransform), (With<WaitUntilNonZeroTransform>, Changed<UiGlobalTransform>)>,
     mut commands: Commands,
 ) {
     for (entity, global_transform) in data.iter() {
-        if global_transform.translation() != Vec3::ZERO
+        // UiGlobalTransform is an Affine2, translation is Vec2
+        if global_transform.translation != Vec2::ZERO
             && let Ok(mut entity) = commands.get_entity(entity)
         {
             entity.remove::<WaitUntilNonZeroTransform>();
@@ -1143,7 +1143,7 @@ impl ElementWrapper for Inspector {
             )
             .observe(|mut event: On<RootCollapsed>, mut wait_for_roots_collapsed: Query<&mut WaitForRootsCollapsed>, mut commands: Commands| {
                 event.propagate(false);
-                let entity = event.target();
+                let entity = event.entity;
                 if let Ok(mut wait_for_roots_collapsed) = wait_for_roots_collapsed.get_mut(entity) {
                     wait_for_roots_collapsed.0.remove(&event.root);
                     if wait_for_roots_collapsed.0.is_empty()
@@ -1152,8 +1152,8 @@ impl ElementWrapper for Inspector {
                         }
                 }
             })
-            .observe(|event: On<OnRemove, WaitForRootsCollapsed>, scroll_to_roots: Query<&ScrollToRoot>, mut commands: Commands| {
-                let entity = event.target();
+            .observe(|event: On<Remove, WaitForRootsCollapsed>, scroll_to_roots: Query<&ScrollToRoot>, mut commands: Commands| {
+                let entity = event.entity;
                 if let Ok(scroll_to_root) = scroll_to_roots.get(entity).copied()
                     && let Ok(mut entity) = commands.get_entity(entity) {
                         entity.commands().trigger(scroll_to_root);
@@ -1161,7 +1161,7 @@ impl ElementWrapper for Inspector {
                     }
             })
             .observe(clone!((first_target, second_target, third_target) move |event: On<ScrollToRoot>, reset_headers: Query<&ResetHeaders>, childrens: Query<&Children>, mut nodes: Query<&mut Node>, mut commands: Commands| {
-                let entity = event.target();
+                let entity = event.entity;
                 if let Ok(mut entity) = commands.get_entity(entity) {
                     let root = event.root;
                     if show_targeting.get() {
@@ -1203,11 +1203,11 @@ impl ElementWrapper for Inspector {
             )
             .observe(|event: On<Insert, InspectionTarget>, childrens: Query<&Children>, inspector_columns: Query<&InspectorColumn>, mut commands: Commands| {
                 // TODO: use relations to identify inspector column
-                if let Some(inspector_column) = inspector_column(event.target(), &childrens, &inspector_columns)
+                if let Some(inspector_column) = inspector_column(event.entity, &childrens, &inspector_columns)
                     && let Ok(children) = childrens.get(inspector_column) {
                         // skip last child, which is a scrolling spacer
                         for &child in &children[..children.len() - 1] {
-                            commands.trigger_targets(CheckInspectionTargets(child));
+                            commands.trigger(CheckInspectionTargets(child));
                         }
                     }
             })
@@ -1337,7 +1337,7 @@ impl ElementWrapper for Inspector {
                                     raw_el
                                     .insert(WaitUntilNonZeroTransform)
                                     .observe(clone!((font_size) move |event: On<Remove, WaitUntilNonZeroTransform>, mut commands: Commands| {
-                                        let entity = event.target();
+                                        let entity = event.entity;
                                         commands.queue(clone!((font_size) move |world: &mut World| {
                                             let asset_id = Mutable::new(None);
                                             let el = {
@@ -1406,8 +1406,8 @@ impl ElementWrapper for Inspector {
                             .insert(InspectorColumn)
                             .component_signal::<ScrollbarHeight, _>(scrollbar_height_option.signal().map_some(ScrollbarHeight))
                             .observe(on_scroll_header_pinner)
-                            .observe(|event: On<OnInsert, PinnedHeaders>, mut inspector_ancestor: InspectorAncestor, mut commands: Commands| {
-                                let entity = event.target();
+                            .observe(|event: On<Insert, PinnedHeaders>, mut inspector_ancestor: InspectorAncestor, mut commands: Commands| {
+                                let entity = event.entity;
                                 if let Some(inspector) = inspector_ancestor.get(entity)
                                     && let Ok(mut entity) = commands.get_entity(inspector) {
                                         entity.try_insert(GlobalZIndex(z_order("inspector") - 100)); // TODO: this depends on the number of expanded headers, be more precise
@@ -1427,7 +1427,8 @@ impl ElementWrapper for Inspector {
                     .update_raw_el(|raw_el| raw_el.insert(ScrollDisabled))
                     .on_viewport_location_change_with_system(move |In((entity, (_, viewport))): In<(Entity, (Scene, Viewport))>, mut header_pinner: HeaderPinner| {
                         // TODO: is there a way to make this frame perfect ?
-                        header_pinner.sync(entity, viewport.offset_y);
+                        // Floor to match Bevy 0.17's physical_scroll_position calculation in ui_layout_system
+                        header_pinner.sync(entity, viewport.offset_y.floor());
                     })
                     .on_viewport_location_change(clone!((viewport_height, scrollbar_height_option) move |scene, viewport| {
                         viewport_height.set_neq(viewport.height);
@@ -1695,7 +1696,7 @@ impl ElementWrapper for Inspector {
                         let dragging = Mutable::new(false);
                         let width = signal_or!(track_hovered.signal(), dragging.signal()).map_bool(|| SCROLLBAR_WIDTH_BIG, || SCROLLBAR_WIDTH_SMOL).broadcast();
                         // TODO: while the entities are hovered, listen to move events, if there is no movement after x seconds or it's no longer hovered, start a system that fades out the scrollbar
-                        // by increasing the alpha with a quarticin easing function, if the entities are hovered again or there is some movement, instantly bring the color back
+                        // by increasing the alpha with a quartic in easing function, if the entities are hovered again or there is some movement, instantly bring the color back
                         // TODO: smooth scrolling
                         // track
                         El::<Node>::new()
@@ -2714,8 +2715,8 @@ struct AssetsHeader;
 
 fn sync_on_expanded_and_visibility<T: Component + Default>(el: RawHaalkaEl) -> RawHaalkaEl {
     el.observe(
-        |event: On<OnAdd, Visible>, expandeds: Query<&Expanded>, mut commands: Commands| {
-            let entity = event.target();
+        |event: On<Add, Visible>, expandeds: Query<&Expanded>, mut commands: Commands| {
+            let entity = event.entity;
             if expandeds.contains(entity)
                 && let Ok(mut entity) = commands.get_entity(entity)
             {
@@ -2723,15 +2724,15 @@ fn sync_on_expanded_and_visibility<T: Component + Default>(el: RawHaalkaEl) -> R
             }
         },
     )
-    .observe(|event: On<OnRemove, Visible>, mut commands: Commands| {
-        let entity = event.target();
+    .observe(|event: On<Remove, Visible>, mut commands: Commands| {
+        let entity = event.entity;
         if let Ok(mut entity) = commands.get_entity(entity) {
             entity.remove::<T>();
         }
     })
     .observe(
-        |event: On<OnAdd, Expanded>, visibles: Query<&Visible>, mut commands: Commands| {
-            let entity = event.target();
+        |event: On<Add, Expanded>, visibles: Query<&Visible>, mut commands: Commands| {
+            let entity = event.entity;
             if visibles.contains(entity)
                 && let Ok(mut entity) = commands.get_entity(entity)
             {
@@ -2739,8 +2740,8 @@ fn sync_on_expanded_and_visibility<T: Component + Default>(el: RawHaalkaEl) -> R
             }
         },
     )
-    .observe(|event: On<OnRemove, Expanded>, mut commands: Commands| {
-        let entity = event.target();
+    .observe(|event: On<Remove, Expanded>, mut commands: Commands| {
+        let entity = event.entity;
         if let Ok(mut entity) = commands.get_entity(entity) {
             entity.remove::<T>();
         }
@@ -2805,7 +2806,7 @@ impl ElementWrapper for MultiFieldElement {
                 inspection_targets: Query<&InspectionTarget>,
                 mut commands: Commands
             | {
-                let ui_entity = event.target();
+                let ui_entity = event.0;
                 for parent in child_ofs.iter_ancestors(ui_entity) {
                     if let Ok(target) = inspection_targets.get(parent)
                         && matches!(target.root, InspectionTargetRoot::Entity | InspectionTargetRoot::Asset)
@@ -2841,7 +2842,7 @@ impl ElementWrapper for MultiFieldElement {
                                         if let Some(&child) = i_born(ui_entity, &childrens, 1)
                                             && let Ok(children) = childrens.get(child) {
                                                 for &child in children {
-                                                    commands.trigger_targets(CheckInspectionTargets(child));
+                                                    commands.trigger(CheckInspectionTargets(child));
                                                 }
                                             }
                                     }
@@ -2852,7 +2853,7 @@ impl ElementWrapper for MultiFieldElement {
                 }
             }))
             .apply(scroll_to_header_on_birth)
-            .on_spawn_with_system(|In(entity), mut commands: Commands| commands.trigger_targets(CheckInspectionTargets(entity)));
+            .on_spawn_with_system(|In(entity), mut commands: Commands| commands.trigger(CheckInspectionTargets(entity)));
             match &data {
                 MultiFieldData::Entity { data: EntityData { components, .. }, .. }  => {
                     raw_el = raw_el
@@ -3207,7 +3208,7 @@ fn object_type_header_with_count(
         .component_signal::<Expanded, _>(expanded.signal().dedupe().map_true(default))
         .apply(listen_to_expanded_component(expanded.clone()))
         .observe(move |event: On<Remove, Expanded>, mut commands: Commands| {
-            commands.trigger_targets(RootCollapsed { entity: event.target(), root });
+            commands.trigger(RootCollapsed { entity: event.entity, root });
         })
         .observe(clone!((expanded) move |
             event: On<CheckInspectionTargets>,
@@ -3216,7 +3217,7 @@ fn object_type_header_with_count(
             childrens: Query<&Children>,
             mut commands: Commands
         | {
-            let ui_entity = event.target();
+            let ui_entity = event.0;
             for parent in child_ofs.iter_ancestors(ui_entity) {
                 if let Ok(target) = inspection_targets.get(parent)
                     && target.root == root {
@@ -3229,7 +3230,7 @@ fn object_type_header_with_count(
                         if let Some(&child) = i_born(ui_entity, &childrens, 1)
                             && let Ok(children) = childrens.get(child) {
                                 for &child in children {
-                                    commands.trigger_targets(CheckInspectionTargets(child));
+                                    commands.trigger(CheckInspectionTargets(child));
                                 }
                             }
                         expanded.set_neq(true);
@@ -3238,7 +3239,7 @@ fn object_type_header_with_count(
             }
         }))
         .apply(scroll_to_header_on_birth)
-        .on_spawn_with_system(|In(entity), mut commands: Commands| commands.trigger_targets(CheckInspectionTargets(entity)))
+        .on_spawn_with_system(|In(entity), mut commands: Commands| commands.trigger(CheckInspectionTargets(entity)))
     })
     .item(
         // TODO: use text spans for this
@@ -3402,7 +3403,7 @@ impl FieldElement {
                     fields_columns: Query<&FieldsColumn>,
                     mut commands: Commands
                 | {
-                    let ui_entity = event.target();
+                    let ui_entity = event.0;
                     for parent in child_ofs.iter_ancestors(ui_entity) {
                         // TODO: this should just be generalized for every header (a lot of logic repeated for multi fields + fields)
                         let mut pending_option = None;
@@ -3454,7 +3455,7 @@ impl FieldElement {
                                         if fields_columns.contains(child) {
                                             if let Ok(children) = childrens.get(child) {
                                                 for &child in children {
-                                                    commands.trigger_targets(CheckInspectionTargets(child));
+                                                    commands.trigger(CheckInspectionTargets(child));
                                                 }
                                             }
                                             break;
@@ -3468,7 +3469,7 @@ impl FieldElement {
                     }
                 }))
                 .apply(scroll_to_header_on_birth)
-                .on_spawn_with_system(|In(entity), mut commands: Commands| commands.trigger_targets(CheckInspectionTargets(entity)))
+                .on_spawn_with_system(|In(entity), mut commands: Commands| commands.trigger(CheckInspectionTargets(entity)))
                 .on_spawn(clone!((viewability, node_type, type_path, enum_data_option, field_type) move |world, ui_entity| {
                     // TODO: more intelligent way to get this height? waiting for node to reach "full size" is pretty cringe
                     let mut field_path_option = None;
@@ -5603,9 +5604,11 @@ impl<'w, 's> MaybeScrollToHeaderRoot<'w, 's> {
                     }
                     if let Some(rect) = self.header_pinner.logical_rect.get(entity) {
                         let offset = expanded_ancestors as f32 * rect.size().y;
-                        self.header_pinner.sync(inspector_column, top - offset);
-                        let scrolled = scroll_position.y != top - offset;
-                        scroll_position.y = top - offset;
+                        // Floor to match Bevy 0.17's physical_scroll_position calculation in ui_layout_system
+                        let target_y = (top - offset).floor();
+                        self.header_pinner.sync(inspector_column, target_y);
+                        let scrolled = scroll_position.y != target_y;
+                        scroll_position.y = target_y;
                         return scrolled;
                     }
                 }
@@ -5629,9 +5632,10 @@ fn on_scroll_header_pinner(
     } = event.event();
     // TODO: this should be configurable
     let dy = scroll_normalizer(unit, y, DEFAULT_SCROLL_PIXELS);
-    let inspector_column = event.target();
+    let inspector_column = event.entity;
     if let Ok(ScrollPosition(Vec2 { y, .. })) = scroll_positions.get(inspector_column) {
-        header_pinner.sync(inspector_column, (y - dy).max(0.));
+        // Floor to match Bevy 0.17's physical_scroll_position calculation in ui_layout_system
+        header_pinner.sync(inspector_column, (y - dy).max(0.).floor());
     };
 }
 
@@ -5756,8 +5760,8 @@ fn sync_names(names: Query<(Entity, &Name), Changed<Name>>, entity_roots: Query<
     }
 }
 
-#[derive(Event)]
-struct ShowSearch;
+#[derive(EntityEvent)]
+struct ShowSearch(Entity);
 
 #[derive(EntityEvent)]
 struct HideSearch(Entity);
@@ -5779,12 +5783,6 @@ struct TabEvent {
     tab: Tab,
 }
 
-#[derive(EntityEvent)]
-struct InspectorControl<E: Event> {
-    entity: Entity,
-    event: E,
-}
-
 // TODO: make hotkeys configurable
 fn hotkey_forwarder(
     keys: Res<ButtonInput<KeyCode>>,
@@ -5792,13 +5790,10 @@ fn hotkey_forwarder(
     mut commands: Commands,
 ) {
     if let Some(selected_inspector) = selected_inspector_option {
-        // released because pressed causes input to be inserted into the text input on release
+        // released because pressed causes input to be inserted into the text input on release build
         // (2fast4me)
         if keys.just_released(KeyCode::Slash) {
-            commands.trigger_targets(InspectorControl {
-                entity: selected_inspector.0,
-                event: ShowSearch,
-            });
+            commands.trigger(ShowSearch(selected_inspector.0));
         }
         if (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight))
             && keys.just_released(KeyCode::Semicolon)
@@ -5806,30 +5801,30 @@ fn hotkey_forwarder(
             commands.trigger(ShowTargeting(selected_inspector.0));
         }
         if keys.just_pressed(KeyCode::Escape) {
-            commands.trigger_targets(HideSearch(selected_inspector.0));
-            commands.trigger_targets(HideTargeting(selected_inspector.0));
+            commands.trigger(HideSearch(selected_inspector.0));
+            commands.trigger(HideTargeting(selected_inspector.0));
         }
         if keys.just_pressed(KeyCode::Tab) {
             if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
-                commands.trigger_targets(TabEvent {
+                commands.trigger(TabEvent {
                     entity: selected_inspector.0,
                     tab: Tab::Down,
                 });
             } else {
-                commands.trigger_targets(TabEvent {
+                commands.trigger(TabEvent {
                     entity: selected_inspector.0,
                     tab: Tab::Up,
                 });
             }
         }
         if keys.just_pressed(KeyCode::ArrowLeft) {
-            commands.trigger_targets(TargetRootMoveEvent {
+            commands.trigger(TargetRootMoveEvent {
                 entity: selected_inspector.0,
                 move_: TargetRootMove::Left,
             });
         }
         if keys.just_pressed(KeyCode::ArrowRight) {
-            commands.trigger_targets(TargetRootMoveEvent {
+            commands.trigger(TargetRootMoveEvent {
                 entity: selected_inspector.0,
                 move_: TargetRootMove::Right,
             });
@@ -5962,7 +5957,10 @@ pub fn resize_border<E: Element>(
             .layer({
                 El::<Node>::new()
                     .apply(padding_style(BoxEdge::ALL, border_width.signal()))
-                    .with_node(|mut node| node.overflow = Overflow::clip())
+                    .with_node(|mut node| {
+                        node.overflow = Overflow::clip();
+                        node.overflow_clip_margin = OverflowClipMargin::content_box();
+                    })
                     .child(
                         el.apply(border_radius_style(BoxCorner::ALL, radius.signal()))
                             .update_raw_el(|raw_el| {

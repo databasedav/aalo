@@ -5,7 +5,7 @@ use utils::*;
 
 use aalo::prelude::*;
 use bevy::{
-    ecs::{component::HookContext, world::DeferredWorld},
+    ecs::{lifecycle::HookContext, world::DeferredWorld},
     prelude::*,
 };
 
@@ -61,8 +61,8 @@ fn init_custom_bool_frontend(mut world: DeferredWorld, HookContext { entity, .. 
                     };
                     // one of these will silently error depending on if it's the field or component
                     // target, we just do both here for the convenience of using the same frontend
-                    field.update(click.target(), (!cur).to_dynamic());
-                    field.update(click.target(), CustomBoolComponent(!cur).to_dynamic());
+                    field.update(click.entity, (!cur).to_dynamic());
+                    field.update(click.entity, CustomBoolComponent(!cur).to_dynamic());
                 }
             },
         );

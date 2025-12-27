@@ -88,7 +88,7 @@ pub fn sync_tooltip_position(
     move |el| {
         el.observe(
             |event: On<Pointer<Enter>>, mut inspector_ancestor: InspectorAncestor, mut commands: Commands| {
-                if let Some(inspector) = inspector_ancestor.get(event.target())
+                if let Some(inspector) = inspector_ancestor.get(event.entity)
                     && let Ok(mut entity) = commands.get_entity(inspector)
                 {
                     entity.try_insert(TooltipTargetPosition(event.event().pointer_location.position));
