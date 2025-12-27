@@ -1,6 +1,6 @@
 use std::any::TypeId;
 
-use bevy_asset::{ReflectAsset, UntypedAssetId, UntypedHandle};
+use bevy_asset::{ReflectAsset, UntypedAssetId};
 use bevy_ecs::{component::ComponentId, prelude::*};
 use bevy_reflect::{ReflectFromPtr, prelude::*};
 
@@ -129,7 +129,7 @@ pub fn reflect_asset(world: &mut World, asset: TypeId, handle: UntypedAssetId) -
         .map(|type_registry| type_registry.read())
         && let Some(type_registration) = type_registry.get(asset)
         && let Some(reflect_asset) = type_registration.data::<ReflectAsset>()
-        && let Some(reflect) = reflect_asset.get(world, UntypedHandle::Weak(handle))
+        && let Some(reflect) = reflect_asset.get(world, handle)
     {
         return Some(reflect);
     }
@@ -141,7 +141,7 @@ pub fn reflect_asset_mut(world: &mut World, asset: TypeId, handle: UntypedAssetI
         && let Some(registration) = type_registry.read().get(asset)
         && let Some(reflect_asset) = registration.data::<ReflectAsset>()
     {
-        return reflect_asset.get_mut(world, UntypedHandle::Weak(handle));
+        return reflect_asset.get_mut(world, handle);
     }
     None
 }

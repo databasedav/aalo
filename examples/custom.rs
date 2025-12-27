@@ -52,7 +52,7 @@ fn init_custom_bool_frontend(mut world: DeferredWorld, HookContext { entity, .. 
         .add_child(text)
         .insert(FieldListener::new(system))
         .observe(
-            move |click: Trigger<Pointer<Click>>, texts: Query<&Text>, mut field: TargetField| {
+            move |click: On<Pointer<Click>>, texts: Query<&Text>, mut field: TargetField| {
                 if let Ok(Text(text)) = texts.get(text) {
                     let cur = match text.as_str() {
                         "true" => true,

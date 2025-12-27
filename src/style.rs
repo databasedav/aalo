@@ -4,7 +4,7 @@ use std::ops::Neg;
 use bevy_color::prelude::*;
 use bevy_text::prelude::*;
 use bevy_ui::prelude::*;
-use haalka::prelude::*;
+use haalka::futures_signals::prelude::*;
 use strum::EnumIter;
 
 pub(crate) static Z_ORDER: &[&str] = &[
@@ -193,7 +193,7 @@ pub fn border_style<E: Element>(
     |el| {
         el.update_raw_el(|raw_el| {
             raw_el
-                .component_signal::<BorderColor, _>(border_color.dedupe().map(BorderColor))
+                .component_signal::<BorderColor, _>(border_color.dedupe().map(BorderColor::all))
                 .on_signal_with_component::<_, Node>(
                     border_width.dedupe().map(Val::Px).map(UiRect::all),
                     |mut node, width| node.border = width,
@@ -208,7 +208,7 @@ pub fn border_color_style<E: Element>(
     |el| {
         let border_color = border_color.map(Into::into);
         el.update_raw_el(|raw_el| {
-            raw_el.component_signal::<BorderColor, _>(border_color.dedupe().map_some(BorderColor))
+            raw_el.component_signal::<BorderColor, _>(border_color.dedupe().map_some(BorderColor::all))
         })
     }
 }
