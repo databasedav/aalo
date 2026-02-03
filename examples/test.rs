@@ -18,7 +18,7 @@ fn main() {
                 ..default()
             }),
             HaalkaPlugin,
-            DebugUiPlugin,
+            // DebugUiPlugin,
             // style::plugin,
             AaloPlugin::new()
                 .world()

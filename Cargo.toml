@@ -24,6 +24,7 @@ bevy_log = "0.17"
 bevy_math = "0.17"
 bevy_mesh = "0.17"
 bevy_picking = "0.17"
+bevy_platform = "0.17"
 bevy_reflect = "0.17"
 bevy_render = "0.17"
 bevy_shader = "0.17"
@@ -73,3 +74,7 @@ name = "utils"
 path = "examples/utils.rs"
 doc-scrape-examples = true
 crate-type = ["lib"]
+
+[patch.crates-io]
+jonmo = { path = "../jonmo" }
+haalka = { path = "../haalka" }

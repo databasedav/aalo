@@ -21,6 +21,7 @@ dependencies = [
  "bevy_math",
  "bevy_mesh",
  "bevy_picking",
+ "bevy_platform",
  "bevy_reflect",
  "bevy_render",
  "bevy_rich_text3d",
@@ -2832,6 +2833,7 @@ dependencies = [
  "bevy_log",
  "bevy_math",
  "bevy_picking",
+ "bevy_platform",
  "bevy_reflect",
  "bevy_render",
  "bevy_tasks",
@@ -3082,12 +3084,11 @@ dependencies = [
 [[package]]
 name = "jonmo"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae7f3ff77696739fdc7b85e6c11772e884e93418c7663179987d29664b22c733"
 dependencies = [
  "apply",
  "bevy_app",
  "bevy_derive",
+ "bevy_diagnostic",
  "bevy_ecs",
  "bevy_log",
  "bevy_platform",

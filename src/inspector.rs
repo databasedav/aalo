@@ -26,6 +26,7 @@ use bevy_log::prelude::*;
 use bevy_math::prelude::*;
 use bevy_mesh::prelude::*;
 use bevy_picking::prelude::*;
+use bevy_platform::sync::LazyLock;
 use bevy_reflect::{prelude::*, *};
 use bevy_render::render_resource::AsBindGroup;
 use bevy_rich_text3d::{GlyphMeta, LoadFonts, Text3d, Text3dPlugin, Text3dStyling, TextAtlas};
@@ -62,6 +63,7 @@ use super::{defaults::*, globals::*, reflect::*, style::*, utils::*, widgets::*}
 use crate::{impl_syncers, signal_or};
 
 // TODO: aalo text appears in the center before snapping to correct location
+// TODO: if an input is focused and then mouse highlight dragged, it loses focus on release
 //
 // TODO: filter out text input observers, e.g. they get added to the entity list when the
 // search/targeting is brought up
