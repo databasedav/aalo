@@ -327,18 +327,16 @@ pub fn trigger_double_click<Disabled: Component>(raw_el: RawHaalkaEl) -> RawHaal
          disableds: Query<&Disabled>,
          mut commands: Commands| {
             let entity = click.entity;
-            if !disableds.contains(entity) {
-                if matches!(click.button, PointerButton::Primary) {
-                    let now = time.elapsed_secs();
-                    if let Some(last_click_time) = *last_click_time_option
-                        && now - last_click_time <= DOUBLE_CLICK_TIMER
-                    {
-                        *last_click_time_option = None;
-                        commands.trigger(DoubleClick(entity));
-                        return;
-                    }
-                    *last_click_time_option = Some(now);
+            if !disableds.contains(entity) && matches!(click.button, PointerButton::Primary) {
+                let now = time.elapsed_secs();
+                if let Some(last_click_time) = *last_click_time_option
+                    && now - last_click_time <= DOUBLE_CLICK_TIMER
+                {
+                    *last_click_time_option = None;
+                    commands.trigger(DoubleClick(entity));
+                    return;
                 }
+                *last_click_time_option = Some(now);
             }
         },
     )
@@ -1133,11 +1131,11 @@ impl ElementWrapper for Inspector {
                             if roots.is_empty().not() {
                                 entity.try_insert((
                                     WaitForRootsCollapsed(HashSet::from_iter(roots)),
-                                    ScrollToRoot { entity: entity.id(), root: root },
+                                    ScrollToRoot { entity: entity.id(), root },
                                     ResetHeaders(reset_headers),
                                 ));
                             } else {
-                                entity.trigger(|entity| ScrollToRoot { entity, root: root });
+                                entity.trigger(|entity| ScrollToRoot { entity, root });
                             }
                         }
                     }
@@ -2669,7 +2667,7 @@ fn entity_header(
                     ("bevy_window::monitor::Monitor", "Monitor"),
                     ("bevy_picking::pointer::PointerId", "Pointer"),
                 ];
-                let type_names = archetype.components().into_iter().filter_map(|&id| {
+                let type_names = archetype.components().iter().filter_map(|&id| {
                     components.get_info(id).map(|info| info.name())
                 });
                 for component_type in type_names {
@@ -5067,7 +5065,7 @@ fn sync_components(
         if let Some(location) = entities.get(entity_root.entity)
             && let Some(archetype) = archetypes.get(location.archetype_id)
         {
-            let new = archetype.components().into_iter().copied().collect::<HashSet<_>>();
+            let new = archetype.components().iter().copied().collect::<HashSet<_>>();
             let added = new.difference(&entity_root.components).copied().collect::<Vec<_>>();
             let removed = entity_root.components.difference(&new).copied().collect::<Vec<_>>();
             entity_root.components = new;
@@ -6067,8 +6065,8 @@ pub fn resize_border<E: Element>(
                                 mut nodes: Query<&mut Node>,
                             | {
                                 let entity = double_click.0;
-                                if !disableds.contains(entity) {
-                                    if let Some(resize_parent) = resize_parent_cache.get(entity)
+                                if !disableds.contains(entity)
+                                    && let Some(resize_parent) = resize_parent_cache.get(entity)
                                         && let Ok(mut node) = nodes.get_mut(resize_parent) {
                                             if matches!(edge, BoxEdge::Top | BoxEdge::Bottom) {
                                                 node.height = Val::Px(DEFAULT_HEIGHT);
@@ -6076,7 +6074,6 @@ pub fn resize_border<E: Element>(
                                                 node.width = Val::Px(DEFAULT_WIDTH);
                                             }
                                         }
-                                }
                             },
                         )
                         .observe(
@@ -6121,22 +6118,20 @@ pub fn resize_border<E: Element>(
                         )
                         .observe(
                             |drag_start: On<Pointer<DragStart>>, disableds: Query<&Disabled>, mut commands: Commands| {
-                                if !disableds.contains(drag_start.entity) {
-                                    if matches!(drag_start.button, PointerButton::Primary) {
+                                if !disableds.contains(drag_start.entity)
+                                    && matches!(drag_start.button, PointerButton::Primary) {
                                         commands.insert_resource(CursorOnHoverDisabled);
                                         commands.insert_resource(UpdateHoverStatesDisabled);
                                     }
-                                }
                             },
                         )
                         .observe(
                             |drag_end: On<Pointer<DragEnd>>, disableds: Query<&Disabled>, mut commands: Commands| {
-                                if !disableds.contains(drag_end.entity) {
-                                    if matches!(drag_end.button, PointerButton::Primary) {
+                                if !disableds.contains(drag_end.entity)
+                                    && matches!(drag_end.button, PointerButton::Primary) {
                                         commands.remove_resource::<CursorOnHoverDisabled>();
                                         commands.remove_resource::<UpdateHoverStatesDisabled>();
                                     }
-                                }
                             },
                         )
                         .observe(
@@ -6145,8 +6140,8 @@ pub fn resize_border<E: Element>(
                                 resize_parent_cache: ResizeParentCache,
                                 mut nodes: Query<&mut Node>| {
                             let entity = drag.entity;
-                            if !disableds.contains(entity) {
-                                if matches!(drag.button, PointerButton::Primary)
+                            if !disableds.contains(entity)
+                                && matches!(drag.button, PointerButton::Primary)
                                     && let Some(resize_parent) = resize_parent_cache.get(entity)
                                         && let Ok(mut node) = nodes.get_mut(resize_parent) {
                                             match edge {
@@ -6175,7 +6170,7 @@ pub fn resize_border<E: Element>(
                                                     }
                                                 }
                                             }
-                                        }}
+                                        }
                             }
                         )
                         }
@@ -6237,13 +6232,12 @@ pub fn resize_border<E: Element>(
                                 mut nodes: Query<&mut Node>,
                             | {
                                 let entity = double_click.0;
-                                if !disableds.contains(entity) {
-                                    if let Some(resize_parent) = resize_parent_cache.get(entity)
+                                if !disableds.contains(entity)
+                                    && let Some(resize_parent) = resize_parent_cache.get(entity)
                                         && let Ok(mut node) = nodes.get_mut(resize_parent) {
                                             node.height = Val::Px(DEFAULT_HEIGHT);
                                             node.width = Val::Px(DEFAULT_WIDTH);
                                         }
-                                }
                             },
                         )
                         .observe(
@@ -6296,22 +6290,20 @@ pub fn resize_border<E: Element>(
                         )
                         .observe(
                             |drag_start: On<Pointer<DragStart>>, disableds: Query<&Disabled>, mut commands: Commands| {
-                                if !disableds.contains(drag_start.entity) {
-                                    if matches!(drag_start.button, PointerButton::Primary) {
+                                if !disableds.contains(drag_start.entity)
+                                    && matches!(drag_start.button, PointerButton::Primary) {
                                         commands.insert_resource(CursorOnHoverDisabled);
                                         commands.insert_resource(UpdateHoverStatesDisabled);
                                     }
-                                }
                             },
                         )
                         .observe(
                             |drag_end: On<Pointer<DragEnd>>, disableds: Query<&Disabled>, mut commands: Commands| {
-                                if !disableds.contains(drag_end.entity) {
-                                    if matches!(drag_end.button, PointerButton::Primary) {
+                                if !disableds.contains(drag_end.entity)
+                                    && matches!(drag_end.button, PointerButton::Primary) {
                                         commands.remove_resource::<CursorOnHoverDisabled>();
                                         commands.remove_resource::<UpdateHoverStatesDisabled>();
                                     }
-                                }
                             },
                         )
                         .observe(
@@ -6322,8 +6314,8 @@ pub fn resize_border<E: Element>(
                                 mut nodes: Query<&mut Node>
                             | {
                                 let entity = drag.entity;
-                                if !disableds.contains(entity) {
-                                    if matches!(drag.button, PointerButton::Primary)
+                                if !disableds.contains(entity)
+                                    && matches!(drag.button, PointerButton::Primary)
                                         && let Some(resize_parent) = resize_parent_cache.get(entity)
                                             && let Ok(mut node) = nodes.get_mut(resize_parent) {
                                                 match corner {
@@ -6369,7 +6361,6 @@ pub fn resize_border<E: Element>(
                                                     }
                                                 }
                                             }
-                                }
                             },
                         )
                     }))
