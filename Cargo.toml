@@ -75,7 +75,3 @@ name = "utils"
 path = "examples/utils.rs"
 doc-scrape-examples = true
 crate-type = ["lib"]
-
-[patch.crates-io]
-jonmo = { path = "../jonmo" }
-haalka = { path = "../haalka" }

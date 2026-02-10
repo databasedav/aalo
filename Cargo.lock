@@ -6192,7 +6192,3 @@ checksum = "4de98dfa5d5b7fef4ee834d0073d560c9ca7b6c46a71d058c48db7960f8cfaf7"
 [[patch.unused]]
 name = "haalka"
 version = "0.5.1"
-
-[[patch.unused]]
-name = "jonmo"
-version = "0.7.0"
