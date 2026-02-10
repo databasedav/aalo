@@ -63,7 +63,6 @@ use super::{defaults::*, globals::*, reflect::*, style::*, utils::*, widgets::*}
 use crate::{impl_syncers, signal_or};
 
 // TODO: aalo text appears in the center before snapping to correct location
-// TODO: if an input is focused and then mouse highlight dragged, it loses focus on release
 //
 // TODO: filter out text input observers, e.g. they get added to the entity list when the
 // search/targeting is brought up
@@ -4498,8 +4497,9 @@ where
         .apply(border_width_style(BoxEdge::ALL, border_width.signal()));
     wrapper.el = wrapper.el.on_click_outside_with_system(
         |In((entity, _)), mut focused_option: ResMut<InputFocus>, childrens: Query<&Children>| {
-            // TODO: use a relationship for this
-            if let Some(&text_input) = i_born(entity, &childrens, 0)
+            // TODO: use a relationship for this (jesus)
+            if let Some(&text_input_wrapper) = i_born(entity, &childrens, 0)
+                && let Some(&text_input) = i_born(text_input_wrapper, &childrens, 0)
                 && focused_option.0 == Some(text_input)
             {
                 focused_option.0 = None
