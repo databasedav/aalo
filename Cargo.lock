@@ -2829,7 +2829,6 @@ dependencies = [
 [[package]]
 name = "haalka"
 version = "0.5.1"
-source = "git+https://github.com/databasedav/haalka?branch=bevy_0.17#718f1ffb00d112778a3f51215728cc2b9fd06ffd"
 dependencies = [
  "apply",
  "async-io",
@@ -2871,7 +2870,6 @@ dependencies = [
 [[package]]
 name = "haalka_futures_signals_ext"
 version = "0.0.3"
-source = "git+https://github.com/databasedav/haalka?branch=bevy_0.17#718f1ffb00d112778a3f51215728cc2b9fd06ffd"
 dependencies = [
  "futures-signals",
  "haalka_futures_util_ext",
@@ -2881,7 +2879,6 @@ dependencies = [
 [[package]]
 name = "haalka_futures_util_ext"
 version = "0.0.1"
-source = "git+https://github.com/databasedav/haalka?branch=bevy_0.17#718f1ffb00d112778a3f51215728cc2b9fd06ffd"
 dependencies = [
  "futures-util",
  "pin-project",
@@ -6188,7 +6185,3 @@ name = "zmij"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4de98dfa5d5b7fef4ee834d0073d560c9ca7b6c46a71d058c48db7960f8cfaf7"
-
-[[patch.unused]]
-name = "haalka"
-version = "0.5.1"
