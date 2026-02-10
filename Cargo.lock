@@ -2828,8 +2828,9 @@ dependencies = [
 
 [[package]]
 name = "haalka"
-version = "0.5.1"
-source = "git+https://github.com/databasedav/haalka?branch=bevy_0.17#2f8bebd90a42c10d7247e4a47b1f2f842e2315ec"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e23cc0b2f5aa7137fd18e226751ffeea269b5c74290b7324b8122e95a89e50a9"
 dependencies = [
  "apply",
  "async-io",
@@ -2871,7 +2872,8 @@ dependencies = [
 [[package]]
 name = "haalka_futures_signals_ext"
 version = "0.0.3"
-source = "git+https://github.com/databasedav/haalka?branch=bevy_0.17#2f8bebd90a42c10d7247e4a47b1f2f842e2315ec"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ab8c9d844740c4d439aa1d1e495e593c552ccdafca57040beefa353743db807"
 dependencies = [
  "futures-signals",
  "haalka_futures_util_ext",
@@ -2881,7 +2883,8 @@ dependencies = [
 [[package]]
 name = "haalka_futures_util_ext"
 version = "0.0.1"
-source = "git+https://github.com/databasedav/haalka?branch=bevy_0.17#2f8bebd90a42c10d7247e4a47b1f2f842e2315ec"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7571f6bbb0afdb1095e6e4020947a1c81ab5037089798c40021300b3951c9577"
 dependencies = [
  "futures-util",
  "pin-project",
