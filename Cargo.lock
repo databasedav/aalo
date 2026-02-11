@@ -2930,7 +2930,6 @@ dependencies = [
 [[package]]
 name = "haalka"
 version = "0.6.0"
-source = "git+https://github.com/databasedav/haalka?branch=bevy_0.18#1f573eeaf609362ca18c266c3a060d88c796e0cb"
 dependencies = [
  "apply",
  "async-io",
@@ -2972,7 +2971,6 @@ dependencies = [
 [[package]]
 name = "haalka_futures_signals_ext"
 version = "0.0.3"
-source = "git+https://github.com/databasedav/haalka?branch=bevy_0.18#1f573eeaf609362ca18c266c3a060d88c796e0cb"
 dependencies = [
  "futures-signals",
  "haalka_futures_util_ext",
@@ -2982,7 +2980,6 @@ dependencies = [
 [[package]]
 name = "haalka_futures_util_ext"
 version = "0.0.1"
-source = "git+https://github.com/databasedav/haalka?branch=bevy_0.18#1f573eeaf609362ca18c266c3a060d88c796e0cb"
 dependencies = [
  "futures-util",
  "pin-project",

@@ -35,7 +35,7 @@ bevy_text = { version = "0.18", features = ["default_font"] }
 bevy_time = "0.18"
 bevy_transform = "0.18"
 bevy_ui = "0.18"
-bevy_utils = "0.18"
+bevy_utils = { version = "0.18", features = ["debug"] }
 bevy_window = "0.18"
 bevy_input_focus = "0.18"
 cosmic-text = "0.16"
