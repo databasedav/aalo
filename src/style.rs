@@ -296,19 +296,16 @@ pub fn border_radius_style<E: Element>(
     let corners = corners.into_iter().collect::<Vec<_>>();
     move |el| {
         el.update_raw_el(|raw_el| {
-            raw_el.on_signal_with_component::<_, Node>(
-                border_radius.dedupe().map(Val::Px),
-                move |mut node, radius| {
-                    for corner in corners.iter() {
-                        match corner {
-                            BoxCorner::TopLeft => node.border_radius.top_left = radius,
-                            BoxCorner::TopRight => node.border_radius.top_right = radius,
-                            BoxCorner::BottomLeft => node.border_radius.bottom_left = radius,
-                            BoxCorner::BottomRight => node.border_radius.bottom_right = radius,
-                        }
+            raw_el.on_signal_with_component::<_, Node>(border_radius.dedupe().map(Val::Px), move |mut node, radius| {
+                for corner in corners.iter() {
+                    match corner {
+                        BoxCorner::TopLeft => node.border_radius.top_left = radius,
+                        BoxCorner::TopRight => node.border_radius.top_right = radius,
+                        BoxCorner::BottomLeft => node.border_radius.bottom_left = radius,
+                        BoxCorner::BottomRight => node.border_radius.bottom_right = radius,
                     }
-                },
-            )
+                }
+            })
         })
     }
 }

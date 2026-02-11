@@ -3157,12 +3157,14 @@ fn field_header(
     )
     .item_signal(
         if let Some(FieldType::Field(type_path)) = field_type {
-            hovered.signal()
-            .map_true(clone!((type_path_color, type_path) move || {
+            always(Some(
                 DynamicText::new()
                 .text(type_path.clone())
                 .color_signal(type_path_color.signal())
-            }))
+                .update_raw_el(|raw_el| raw_el.component_signal(
+                  hovered.signal().dedupe().map_bool(|| Visibility::Inherited, || Visibility::Hidden)
+                ))
+            ))
             .boxed()
         } else {
             type_path.signal_cloned().map_some(clone!((hovered, type_path_color) move |type_path| {
@@ -3172,7 +3174,7 @@ fn field_header(
             }))
             .boxed()
         }
-        .map(|el_option| el_option.map(text_no_wrap))
+        .map_some(text_no_wrap)
     )
 }
 
