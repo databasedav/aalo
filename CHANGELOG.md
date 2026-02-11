@@ -4,6 +4,11 @@ the format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## unreleased
 
+# 0.3.0 (2026-02-11)
+
+- upgrade to bevy 0.18
+- upgrade to haalka 0.6, still using deprecated futures-signals backend
+
 # 0.2.0 (2026-02-10)
 
 ### changed
