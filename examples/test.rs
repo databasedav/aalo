@@ -1,9 +1,10 @@
 #![allow(clippy::all)]
+#![allow(deprecated)]
 
 use aalo::prelude::*;
 use bevy::prelude::*;
 use bevy_math::Vec3A;
-use haalka::prelude::*;
+use haalka::futures_signals::prelude::*;
 use strum::{Display, EnumIter};
 
 fn main() {
@@ -17,8 +18,8 @@ fn main() {
                 }),
                 ..default()
             }),
-            HaalkaPlugin,
-            DebugUiPlugin,
+            HaalkaFuturesSignalsPlugin,
+            // DebugUiPlugin,
             // style::plugin,
             AaloPlugin::new()
                 .world()

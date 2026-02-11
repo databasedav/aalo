@@ -1,6 +1,7 @@
 use super::defaults::*;
 use bevy_color::prelude::*;
-use haalka::prelude::*;
+use bevy_platform::sync::LazyLock;
+use haalka::futures_signals::prelude::*;
 
 pub static GLOBAL_FONT_SIZE: LazyLock<Mutable<f32>> = LazyLock::new(|| Mutable::new(DEFAULT_FONT_SIZE));
 pub static GLOBAL_ROW_GAP: LazyLock<Mutable<f32>> = LazyLock::new(|| Mutable::new(DEFAULT_ROW_GAP));

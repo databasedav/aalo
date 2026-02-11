@@ -11,39 +11,38 @@ use std::{
 };
 
 use bevy_app::prelude::*;
-use bevy_asset::{ReflectAsset, UntypedAssetId, prelude::*, weak_handle};
+use bevy_asset::{ReflectAsset, UntypedAssetId, prelude::*, uuid_handle};
+use bevy_camera::{RenderTarget, prelude::*, visibility::RenderLayers};
 use bevy_color::{self, prelude::*};
-use bevy_core_pipeline::prelude::*;
 use bevy_derive::*;
-use bevy_ecs::{archetype::Archetypes, component::*, entity::Entities, prelude::*, system::*, world::DeferredWorld};
+use bevy_ecs::{
+    archetype::Archetypes, component::*, entity::Entities, lifecycle::HookContext, prelude::*, system::*,
+    world::DeferredWorld,
+};
 use bevy_image::Image;
 use bevy_input::{mouse::MouseWheel, prelude::*};
 use bevy_input_focus::InputFocus;
 use bevy_log::prelude::*;
 use bevy_math::prelude::*;
+use bevy_mesh::prelude::*;
 use bevy_picking::prelude::*;
+use bevy_platform::sync::LazyLock;
 use bevy_reflect::{prelude::*, *};
-use bevy_render::{
-    camera::{Camera, RenderTarget},
-    prelude::*,
-    render_resource::{AsBindGroup, ShaderRef},
-    view::RenderLayers,
-};
+use bevy_render::render_resource::AsBindGroup;
 use bevy_rich_text3d::{GlyphMeta, LoadFonts, Text3d, Text3dPlugin, Text3dStyling, TextAtlas};
-use bevy_sprite::{AlphaMode2d, Material2d, Material2dPlugin, prelude::*};
-use bevy_text::{
-    cosmic_text::{Action, Edit, Motion, Selection, Weight},
-    *,
-};
+use bevy_shader::{Shader, ShaderRef};
+use bevy_sprite_render::{AlphaMode2d, Material2d, Material2dPlugin, prelude::*};
+use bevy_text::*;
 use bevy_time::Time;
 use bevy_transform::prelude::*;
 use bevy_ui::prelude::*;
 use bevy_utils::prelude::*;
 use bevy_window::{PrimaryWindow, Window, WindowRef};
+use cosmic_text::{Action, Edit, Motion, Selection, Weight};
 use disqualified::ShortName;
-use haalka::{
+use haalka::futures_signals::{
     align::AlignabilityFacade,
-    mouse_wheel_scrollable::{ScrollDisabled, scroll_normalizer},
+    mouse_wheel_scrollable::{MouseWheelEvent, ScrollDisabled, scroll_normalizer},
     pointer_event_aware::UpdateHoverStatesDisabled,
     prelude::{
         bevy_ui_text_input::{TextInputBuffer, TextInputMode, TextInputNode, text_input_pipeline::TextInputPipeline},
@@ -63,8 +62,6 @@ use strum::{Display, EnumIter, IntoEnumIterator};
 use super::{defaults::*, globals::*, reflect::*, style::*, utils::*, widgets::*};
 use crate::{impl_syncers, signal_or};
 
-// TODO: aalo text appears in the center before snapping to correct location
-//
 // TODO: filter out text input observers, e.g. they get added to the entity list when the
 // search/targeting is brought up
 //
@@ -246,10 +243,10 @@ fn search_input_shared_properties(
                     .cursor(CursorIcon::System(SystemCursorIcon::Text))
                     .update_raw_el(|raw_el| {
                         raw_el.observe(
-                            |event: Trigger<OnInsert, TextInputNode>,
+                            |event: On<Insert, TextInputNode>,
                              mut buffers: Query<&mut TextInputBuffer>,
                              mut text_input_pipeline: ResMut<TextInputPipeline>| {
-                                if let Ok(mut buffer) = buffers.get_mut(event.target()) {
+                                if let Ok(mut buffer) = buffers.get_mut(event.entity) {
                                     let font_system = &mut text_input_pipeline.font_system;
                                     let TextInputBuffer { editor, .. } = &mut *buffer;
                                     let mut editor = editor.borrow_with(font_system);
@@ -259,7 +256,7 @@ fn search_input_shared_properties(
                                     {
                                         editor.action(Action::Motion(Motion::BufferEnd));
                                         let cursor = editor.cursor();
-                                        editor.set_selection(Selection::Line(bevy_text::cosmic_text::Cursor {
+                                        editor.set_selection(Selection::Line(cosmic_text::Cursor {
                                             line: 0,
                                             index: len - 1,
                                             affinity: cursor.affinity,
@@ -315,23 +312,25 @@ pub fn inspector_column(
 
 const DOUBLE_CLICK_TIMER: f32 = 0.5;
 
-#[derive(Event, Clone)]
-pub struct DoubleClick;
+#[derive(EntityEvent, Clone)]
+pub struct DoubleClick(Entity);
 
 // TODO: replace with bevy picking native double click
 pub fn trigger_double_click<Disabled: Component>(raw_el: RawHaalkaEl) -> RawHaalkaEl {
-    raw_el.on_event_with_system_disableable::<Pointer<Click>, Disabled, _>(
-        |In((entity, click)): In<(Entity, Pointer<Click>)>,
+    raw_el.observe(
+        |click: On<Pointer<Click>>,
          time: Res<Time>,
          mut last_click_time_option: Local<Option<f32>>,
+         disableds: Query<&Disabled>,
          mut commands: Commands| {
-            if matches!(click.button, PointerButton::Primary) {
+            let entity = click.entity;
+            if !disableds.contains(entity) && matches!(click.button, PointerButton::Primary) {
                 let now = time.elapsed_secs();
                 if let Some(last_click_time) = *last_click_time_option
                     && now - last_click_time <= DOUBLE_CLICK_TIMER
                 {
                     *last_click_time_option = None;
-                    commands.trigger_targets(DoubleClick, entity);
+                    commands.trigger(DoubleClick(entity));
                     return;
                 }
                 *last_click_time_option = Some(now);
@@ -342,11 +341,11 @@ pub fn trigger_double_click<Disabled: Component>(raw_el: RawHaalkaEl) -> RawHaal
 
 pub fn scroll_to_header_on_birth(el: RawHaalkaEl) -> RawHaalkaEl {
     el.observe(
-        |event: Trigger<Born>,
+        |event: On<Born>,
          childrens: Query<&Children>,
          mut maybe_scroll_to_header_root: MaybeScrollToHeaderRoot,
          mut commands: Commands| {
-            let entity = event.target();
+            let entity = event.0;
             // TODO: use relations to safely get the header element
             if let Some(&header_entity) = i_born(entity, &childrens, 0) {
                 if maybe_scroll_to_header_root.scrolled(header_entity, false).not()
@@ -503,11 +502,11 @@ fn forward_aalo_text_visibility(
 // TODO: this isn't frame perfect, especially on low opt build
 #[allow(clippy::too_many_arguments)]
 fn sync_aalo_text_position(
-    aalo_texts: Query<(Entity, &AaloText, &GlobalTransform)>,
+    aalo_texts: Query<(Entity, &AaloText, &UiGlobalTransform)>,
     primary_window: Single<Entity, With<PrimaryWindow>>,
     aalo_camera: Single<&Camera, With<AaloTextCamera>>,
     windows: Query<&Window>,
-    changed_transforms: Query<Entity, (With<AaloText>, Changed<GlobalTransform>)>,
+    changed_transforms: Query<Entity, (With<AaloText>, Changed<UiGlobalTransform>)>,
     changed_windows: Query<Entity, (With<Window>, Changed<Window>)>,
     mut transforms: Query<&mut Transform>,
     mut commands: Commands,
@@ -522,16 +521,15 @@ fn sync_aalo_text_position(
             WindowRef::Entity(entity) => entity,
         };
         if let Ok(window) = windows.get(window_entity) {
-            let mut update_text_position = |entity: Entity, transform: &GlobalTransform| {
+            let mut update_text_position = |entity: Entity, transform: &UiGlobalTransform| {
                 if let Ok(mut text_transform) = transforms.get_mut(entity) {
-                    let mut translation = transform.translation();
-                    translation.y = -translation.y; // flip y axis
-                    text_transform.translation = translation
-                        - Vec3 {
-                            x: window.width() / 2.,
-                            y: -window.height() / 2.,
-                            z: 0.,
-                        };
+                    // UiGlobalTransform is an Affine2, translation is Vec2
+                    let translation = transform.translation;
+                    text_transform.translation = Vec3::new(
+                        translation.x - window.width() / 2.,
+                        -translation.y + window.height() / 2., // flip y axis
+                        0.,
+                    );
                 }
             };
             let remove_wait_for_position = |entity: Entity, commands: &mut Commands| {
@@ -562,11 +560,12 @@ pub struct WaitUntilNonZeroTransform;
 
 #[allow(clippy::type_complexity)]
 fn wait_until_non_zero_transform(
-    data: Query<(Entity, &GlobalTransform), (With<WaitUntilNonZeroTransform>, Changed<GlobalTransform>)>,
+    data: Query<(Entity, &UiGlobalTransform), (With<WaitUntilNonZeroTransform>, Changed<UiGlobalTransform>)>,
     mut commands: Commands,
 ) {
     for (entity, global_transform) in data.iter() {
-        if global_transform.translation() != Vec3::ZERO
+        // UiGlobalTransform is an Affine2, translation is Vec2
+        if global_transform.translation != Vec2::ZERO
             && let Ok(mut entity) = commands.get_entity(entity)
         {
             entity.remove::<WaitUntilNonZeroTransform>();
@@ -716,17 +715,18 @@ fn inspection_target_root_selector(
 #[derive(Component)]
 struct WaitForRootsCollapsed(HashSet<InspectionTargetRoot>);
 
-#[derive(Component, Debug)]
-struct RootCollapsed(InspectionTargetRoot);
-
-impl Event for RootCollapsed {
-    type Traversal = &'static ChildOf;
-
-    const AUTO_PROPAGATE: bool = true;
+#[derive(EntityEvent, Debug)]
+#[entity_event(propagate, auto_propagate)]
+struct RootCollapsed {
+    entity: Entity,
+    root: InspectionTargetRoot,
 }
 
-#[derive(Event, Clone, Copy, Component)]
-pub struct ScrollToRoot(InspectionTargetRoot);
+#[derive(EntityEvent, Clone, Copy, Component)]
+pub struct ScrollToRoot {
+    entity: Entity,
+    root: InspectionTargetRoot,
+}
 
 #[derive(Component)]
 struct ResetHeaders(Vec<Entity>);
@@ -736,8 +736,8 @@ const PARSED_PATH_PLACEHOLDER: &str = "`ParsedPath` string e.g. \".bar#0.1[2].0\
 fn listen_to_expanded_component(expanded: Mutable<bool>) -> impl FnOnce(RawHaalkaEl) -> RawHaalkaEl {
     move |raw_el: RawHaalkaEl| {
         raw_el
-            .observe(clone!((expanded) move |_: Trigger<OnInsert, Expanded>| expanded.set_neq(true)))
-            .observe(move |_: Trigger<OnRemove, Expanded>| expanded.set_neq(false))
+            .observe(clone!((expanded) move |_: On<Insert, Expanded>| expanded.set_neq(true)))
+            .observe(move |_: On<Remove, Expanded>| expanded.set_neq(false))
     }
 }
 
@@ -1128,39 +1128,39 @@ impl ElementWrapper for Inspector {
                             if roots.is_empty().not() {
                                 entity.try_insert((
                                     WaitForRootsCollapsed(HashSet::from_iter(roots)),
-                                    ScrollToRoot(root),
+                                    ScrollToRoot { entity: entity.id(), root },
                                     ResetHeaders(reset_headers),
                                 ));
                             } else {
-                                entity.trigger(ScrollToRoot(root));
+                                entity.trigger(|entity| ScrollToRoot { entity, root });
                             }
                         }
                     }
                 }
             )
-            .observe(|mut event: Trigger<RootCollapsed>, mut wait_for_roots_collapsed: Query<&mut WaitForRootsCollapsed>, mut commands: Commands| {
+            .observe(|mut event: On<RootCollapsed>, mut wait_for_roots_collapsed: Query<&mut WaitForRootsCollapsed>, mut commands: Commands| {
                 event.propagate(false);
-                let entity = event.target();
+                let entity = event.entity;
                 if let Ok(mut wait_for_roots_collapsed) = wait_for_roots_collapsed.get_mut(entity) {
-                    wait_for_roots_collapsed.0.remove(&event.event().0);
+                    wait_for_roots_collapsed.0.remove(&event.root);
                     if wait_for_roots_collapsed.0.is_empty()
                         && let Ok(mut entity) = commands.get_entity(entity) {
                             entity.remove::<WaitForRootsCollapsed>();
                         }
                 }
             })
-            .observe(|event: Trigger<OnRemove, WaitForRootsCollapsed>, scroll_to_roots: Query<&ScrollToRoot>, mut commands: Commands| {
-                let entity = event.target();
+            .observe(|event: On<Remove, WaitForRootsCollapsed>, scroll_to_roots: Query<&ScrollToRoot>, mut commands: Commands| {
+                let entity = event.entity;
                 if let Ok(scroll_to_root) = scroll_to_roots.get(entity).copied()
                     && let Ok(mut entity) = commands.get_entity(entity) {
-                        entity.trigger(scroll_to_root);
+                        entity.commands().trigger(scroll_to_root);
                         entity.remove::<ScrollToRoot>();
                     }
             })
-            .observe(clone!((first_target, second_target, third_target) move |event: Trigger<ScrollToRoot>, reset_headers: Query<&ResetHeaders>, childrens: Query<&Children>, mut nodes: Query<&mut Node>, mut commands: Commands| {
-                let entity = event.target();
+            .observe(clone!((first_target, second_target, third_target) move |event: On<ScrollToRoot>, reset_headers: Query<&ResetHeaders>, childrens: Query<&Children>, mut nodes: Query<&mut Node>, mut commands: Commands| {
+                let entity = event.entity;
                 if let Ok(mut entity) = commands.get_entity(entity) {
-                    let root = event.event().0;
+                    let root = event.root;
                     if show_targeting.get() {
                         if let Some(target) = make_target(root, &first_target.lock_ref(), &second_target.lock_ref(), &third_target.lock_ref()) {
                             entity.try_insert(target);
@@ -1198,12 +1198,14 @@ impl ElementWrapper for Inspector {
                     }
                 }
             )
-            .observe(|event: Trigger<OnInsert, InspectionTarget>, childrens: Query<&Children>, inspector_columns: Query<&InspectorColumn>, mut commands: Commands| {
+            .observe(|event: On<Insert, InspectionTarget>, childrens: Query<&Children>, inspector_columns: Query<&InspectorColumn>, mut commands: Commands| {
                 // TODO: use relations to identify inspector column
-                if let Some(inspector_column) = inspector_column(event.target(), &childrens, &inspector_columns)
+                if let Some(inspector_column) = inspector_column(event.entity, &childrens, &inspector_columns)
                     && let Ok(children) = childrens.get(inspector_column) {
                         // skip last child, which is a scrolling spacer
-                        commands.trigger_targets(CheckInspectionTargets, children[..children.len() - 1].to_vec());
+                        for &child in &children[..children.len() - 1] {
+                            commands.trigger(CheckInspectionTargets(child));
+                        }
                     }
             })
         }))
@@ -1225,25 +1227,27 @@ impl ElementWrapper for Inspector {
                 raw_el
                 .insert(Pickable::default())
                 .apply(manage_dragging_component)
-                .on_event_with_system_stop_propagation::<Pointer<DragStart>, _>(|In((_, drag_start)): In<(Entity, Pointer<DragStart>)>, mut commands: Commands| {
+                .observe(|mut drag_start: On<Pointer<DragStart>>, mut commands: Commands| {
+                    drag_start.propagate(false);
                     if matches!(drag_start.button, PointerButton::Primary) {
                         commands.insert_resource(CursorOnHoverDisabled);
                         commands.insert_resource(UpdateHoverStatesDisabled);
                     }
                 })
-                .on_event_with_system_stop_propagation::<Pointer<DragEnd>, _>(|In((_, drag_end)): In<(Entity, Pointer<DragEnd>)>, mut commands: Commands| {
+                .observe(|mut drag_end: On<Pointer<DragEnd>>, mut commands: Commands| {
+                    drag_end.propagate(false);
                     if matches!(drag_end.button, PointerButton::Primary) {
                         commands.remove_resource::<CursorOnHoverDisabled>();
                         commands.remove_resource::<UpdateHoverStatesDisabled>();
                     }
                 })
-                .on_event_with_system::<Pointer<Drag>, _>(|
-                    In((entity, drag)): In<(Entity, Pointer<Drag>)>,
+                .observe(|
+                    drag: On<Pointer<Drag>>,
                     resize_parent_cache: ResizeParentCache,
                     mut nodes: Query<&mut Node>,
                 | {
                     if matches!(drag.button, PointerButton::Primary)
-                        && let Some(resize_parent) = resize_parent_cache.get(entity)
+                        && let Some(resize_parent) = resize_parent_cache.get(drag.entity)
                             && let Ok(mut node) = nodes.get_mut(resize_parent) {
                                 let cur = if let Val::Px(cur) = node.top { cur } else { 0. };
                                 node.top = Val::Px(cur + drag.delta.y);
@@ -1253,8 +1257,8 @@ impl ElementWrapper for Inspector {
                 })
                 .with_entity(|mut entity| { entity.remove::<Dragging>(); })
                 .apply(trigger_double_click::<Dragging>)
-                .on_event_with_system::<DoubleClick, _>(clone!((collapsed, border_width) move |
-                    In((entity, _)),
+                .observe(clone!((collapsed, border_width) move |
+                    double_click: On<DoubleClick>,
                     // inspector_ancestor: InspectorAncestor,
                     childrens: Query<&Children>,
                     computed_nodes: Query<&ComputedNode>,
@@ -1265,6 +1269,7 @@ impl ElementWrapper for Inspector {
                     mut nodes: Query<&mut Node>,
                     mut commands: Commands,
                 | {
+                    let entity = double_click.0;
                     if let Some(resize_parent) = resize_parent_cache.get(entity) {
                         if collapsed.get() {
                             if let Some((x, y)) = previous_size.take()
@@ -1290,7 +1295,7 @@ impl ElementWrapper for Inspector {
                                     let Vec2 { x, y } = resize_parent_computed_node.size();
                                     // TODO: replace with inspector ancestor once https://github.com/bevyengine/bevy/issues/14773
                                     if let Ok(mut entity) = commands.get_entity(resize_parent) {
-                                        entity.try_insert(PreviousScrollPosition(scroll_position.offset_y));
+                                        entity.try_insert(PreviousScrollPosition(scroll_position.y));
                                     }
                                     *previous_size = Some((x, y));
                                     if let Ok(mut node) = nodes.get_mut(resize_parent) {
@@ -1328,8 +1333,8 @@ impl ElementWrapper for Inspector {
                                 .update_raw_el(clone!((font_size) move |raw_el| {
                                     raw_el
                                     .insert(WaitUntilNonZeroTransform)
-                                    .observe(clone!((font_size) move |event: Trigger<OnRemove, WaitUntilNonZeroTransform>, mut commands: Commands| {
-                                        let entity = event.target();
+                                    .observe(clone!((font_size) move |event: On<Remove, WaitUntilNonZeroTransform>, mut commands: Commands| {
+                                        let entity = event.entity;
                                         commands.queue(clone!((font_size) move |world: &mut World| {
                                             let asset_id = Mutable::new(None);
                                             let el = {
@@ -1398,8 +1403,8 @@ impl ElementWrapper for Inspector {
                             .insert(InspectorColumn)
                             .component_signal::<ScrollbarHeight, _>(scrollbar_height_option.signal().map_some(ScrollbarHeight))
                             .observe(on_scroll_header_pinner)
-                            .observe(|event: Trigger<OnInsert, PinnedHeaders>, mut inspector_ancestor: InspectorAncestor, mut commands: Commands| {
-                                let entity = event.target();
+                            .observe(|event: On<Insert, PinnedHeaders>, mut inspector_ancestor: InspectorAncestor, mut commands: Commands| {
+                                let entity = event.entity;
                                 if let Some(inspector) = inspector_ancestor.get(entity)
                                     && let Ok(mut entity) = commands.get_entity(inspector) {
                                         entity.try_insert(GlobalZIndex(z_order("inspector") - 100)); // TODO: this depends on the number of expanded headers, be more precise
@@ -1409,7 +1414,7 @@ impl ElementWrapper for Inspector {
                     }))
                     .apply(border_radius_style(BoxCorner::TOP, border_radius.signal()))
                     .apply(border_color_style(border_color.signal()))
-                    .mutable_viewport(haalka::prelude::Axis::Vertical)
+                    .mutable_viewport(haalka::futures_signals::prelude::Axis::Vertical)
                     .on_scroll_with_system_disableable::<ScrollDisabled, _>(
                         BasicScrollHandler::new()
                             .direction(ScrollDirection::Vertical)
@@ -1419,7 +1424,8 @@ impl ElementWrapper for Inspector {
                     .update_raw_el(|raw_el| raw_el.insert(ScrollDisabled))
                     .on_viewport_location_change_with_system(move |In((entity, (_, viewport))): In<(Entity, (Scene, Viewport))>, mut header_pinner: HeaderPinner| {
                         // TODO: is there a way to make this frame perfect ?
-                        header_pinner.sync(entity, viewport.offset_y);
+                        // Floor to match Bevy 0.17's physical_scroll_position calculation in ui_layout_system
+                        header_pinner.sync(entity, viewport.offset_y.floor());
                     })
                     .on_viewport_location_change(clone!((viewport_height, scrollbar_height_option) move |scene, viewport| {
                         viewport_height.set_neq(viewport.height);
@@ -1687,7 +1693,7 @@ impl ElementWrapper for Inspector {
                         let dragging = Mutable::new(false);
                         let width = signal_or!(track_hovered.signal(), dragging.signal()).map_bool(|| SCROLLBAR_WIDTH_BIG, || SCROLLBAR_WIDTH_SMOL).broadcast();
                         // TODO: while the entities are hovered, listen to move events, if there is no movement after x seconds or it's no longer hovered, start a system that fades out the scrollbar
-                        // by increasing the alpha with a quarticin easing function, if the entities are hovered again or there is some movement, instantly bring the color back
+                        // by increasing the alpha with a quartic in easing function, if the entities are hovered again or there is some movement, instantly bring the color back
                         // TODO: smooth scrolling
                         // track
                         El::<Node>::new()
@@ -1702,8 +1708,8 @@ impl ElementWrapper for Inspector {
                         .cursor(CursorIcon::System(SystemCursorIcon::Default))
                         .update_raw_el(|raw_el| {
                             raw_el
-                            .on_event_with_system_stop_propagation::<Pointer<Pressed>, _>(|
-                                In((entity, down)): In<(_, Pointer<Pressed>)>,
+                            .observe(|
+                                mut press: On<Pointer<Press>>,
                                 mut inspector_ancestor: InspectorAncestor,
                                 childrens: Query<&Children>,
                                 inspector_columns: Query<&InspectorColumn>,
@@ -1713,62 +1719,67 @@ impl ElementWrapper for Inspector {
                                 logical_rect: LogicalRect,
                                 mut header_pinner: HeaderPinner,
                             | {
-                                if matches!(down.button, PointerButton::Primary) {
+                                press.propagate(false);
+                                if matches!(press.button, PointerButton::Primary) {
                                     // TODO: replace with relations
-                                    if let Some(inspector) = inspector_ancestor.get(entity)
+                                    if let Some(inspector) = inspector_ancestor.get(press.entity)
                                         && let Some(inspector_column) = inspector_column(inspector, &childrens, &inspector_columns)
                                             && let Some((((mut scroll_position, &ScrollbarHeight(scrollbar_height)), MutableViewport { scene, viewport }), logical_rect)) = scroll_positions.get_mut(inspector_column).ok().zip(scrollbar_heights.get(inspector_column).ok()).zip(mutable_viewports.get(inspector_column).ok()).zip(logical_rect.get(inspector_column)) {
                                                 let thumb_min_y = viewport.offset_y / scene.height * viewport.height;
-                                                let down_y = down.pointer_location.position.y - logical_rect.min.y;
+                                                let down_y = press.pointer_location.position.y - logical_rect.min.y;
                                                 // TODO: this seems to be a bit off, the top of the bar seems correct, but the bottom is not including the border radius
                                                 if down_y < thumb_min_y || down_y > thumb_min_y + scrollbar_height {
                                                     let new = ((down_y - scrollbar_height / 2.) * scene.height / viewport.height).max(0.).min(scene.height - viewport.height);
                                                     header_pinner.sync(inspector_column, new);
-                                                    scroll_position.offset_y = new
+                                                    scroll_position.y = new
                                                 }
                                             }
                                 }
                             })
-                            .on_event_with_system_stop_propagation::<Pointer<Pressed>, _>(clone!((dragging) move |
-                                In((_, down)): In<(_, Pointer<Pressed>)>,
+                            .observe(clone!((dragging) move |
+                                mut press: On<Pointer<Press>>,
                                 mut commands: Commands
                             | {
-                                if matches!(down.button, PointerButton::Primary) {
+                                press.propagate(false);
+                                if matches!(press.button, PointerButton::Primary) {
                                     dragging.set_neq(true);
                                     commands.insert_resource(CursorOnHoverDisabled);
                                     commands.insert_resource(UpdateHoverStatesDisabled);
                                 }
                             }))
-                            .on_event_with_system_stop_propagation::<Pointer<Released>, _>(clone!((dragging) move |In((_, up)): In<(_, Pointer<Released>)>, mut commands: Commands| {
-                                if matches!(up.button, PointerButton::Primary) {
+                            .observe(clone!((dragging) move |mut release: On<Pointer<Release>>, mut commands: Commands| {
+                                release.propagate(false);
+                                if matches!(release.button, PointerButton::Primary) {
                                     dragging.set_neq(false);
                                     commands.remove_resource::<CursorOnHoverDisabled>();
                                     commands.remove_resource::<UpdateHoverStatesDisabled>();
                                 }
                             }))
-                            .on_event_with_system_stop_propagation::<Pointer<DragEnd>, _>(clone!((dragging) move |In((_, drag_end)): In<(_, Pointer<DragEnd>)>, mut commands: Commands| {
+                            .observe(clone!((dragging) move |mut drag_end: On<Pointer<DragEnd>>, mut commands: Commands| {
+                                drag_end.propagate(false);
                                 if matches!(drag_end.button, PointerButton::Primary) {
                                     dragging.set_neq(false);
                                     commands.remove_resource::<CursorOnHoverDisabled>();
                                     commands.remove_resource::<UpdateHoverStatesDisabled>();
                                 }
                             }))
-                            .on_event_with_system_stop_propagation::<Pointer<Drag>, _>(|
-                                In((entity, drag)): In<(Entity, Pointer<Drag>)>,
+                            .observe(|
+                                mut drag: On<Pointer<Drag>>,
                                 child_ofs: Query<&ChildOf>,
                                 childrens: Query<&Children>,
                                 mut scroll_positions: Query<&mut ScrollPosition>,
                                 mutable_viewports: Query<&MutableViewport>,
                                 mut header_pinner: HeaderPinner,
                             | {
+                                drag.propagate(false);
                                 if matches!(drag.button, PointerButton::Primary) {
                                     // TODO: replace with relations ?
-                                    if let Ok(child_of) = child_ofs.get(entity)
+                                    if let Ok(child_of) = child_ofs.get(drag.entity)
                                         && let Some(&inspector_column) = i_born(child_of.parent(), &childrens, 0)
                                             && let Some((mut scroll_position, MutableViewport { scene, viewport })) = scroll_positions.get_mut(inspector_column).ok().zip(mutable_viewports.get(inspector_column).ok()) {
-                                                let new = (scroll_position.offset_y + drag.delta.y * scene.height / viewport.height).max(0.);
+                                                let new = (scroll_position.y + drag.delta.y * scene.height / viewport.height).max(0.);
                                                 header_pinner.sync(inspector_column, new);
-                                                scroll_position.offset_y = new;
+                                                scroll_position.y = new;
                                             };
                                 }
                             })
@@ -2166,14 +2177,14 @@ impl ElementWrapper for Inspector {
                     entity.try_insert((UiRoot, UiTargetCamera(camera)));
                 }
             })
-            .on_event_with_system::<Pointer<Pressed>, _>(|In((entity, _)), mut commands: Commands| commands.insert_resource(SelectedInspector(entity)))
-            .observe(|event: Trigger<SizeReached>, childrens: Query<&Children>, inspector_columns: Query<&InspectorColumn>, scroll_positions: Query<&ScrollPosition>, previous_scroll_positions: Query<&PreviousScrollPosition>, mut commands: Commands| {
-                let entity = event.target();
+            .observe(|press: On<Pointer<Press>>, mut commands: Commands| commands.insert_resource(SelectedInspector(press.entity)))
+            .observe(|event: On<SizeReached>, childrens: Query<&Children>, inspector_columns: Query<&InspectorColumn>, scroll_positions: Query<&ScrollPosition>, previous_scroll_positions: Query<&PreviousScrollPosition>, mut commands: Commands| {
+                let entity = event.0;
                 // TODO: use relations
                 for descendent in childrens.iter_descendants(entity) {
                     if inspector_columns.contains(descendent) {
                         if let Ok(&PreviousScrollPosition(y)) = previous_scroll_positions.get(entity) {
-                            if let Ok(&ScrollPosition { offset_y, .. }) = scroll_positions.get(descendent) {
+                            if let Ok(&ScrollPosition(Vec2 { y: offset_y, .. })) = scroll_positions.get(descendent) {
                                 // need to keep setting the scroll position until it's reflected since the layout may be in flight
                                 // when the size is first reached
                                 if y == offset_y {
@@ -2187,52 +2198,52 @@ impl ElementWrapper for Inspector {
                                 }
                             }
                             if let Ok(mut entity) = commands.get_entity(descendent) {
-                                entity.try_insert(ScrollPosition { offset_y: y, ..default() });
+                                entity.try_insert(ScrollPosition(Vec2 { y, ..default() }));
                             }
                         }
                         break;
                     }
                 }
             })
-            .observe(clone!((search_focused, show_search, show_targeting) move |_: Trigger<ShowSearch>, input_focus: Res<InputFocus>, aalo_text_inputs: Query<&AaloTextInput>| {
+            .observe(clone!((search_focused, show_search, show_targeting) move |_: On<ShowSearch>, input_focus: Res<InputFocus>, aalo_text_inputs: Query<&AaloTextInput>| {
                 if input_focus.0.is_none_or(|focused| !aalo_text_inputs.contains(focused)) {
                     show_targeting.set_neq(false);
                     search_focused.set_neq(true);
                     show_search.set_neq(true);
                 }
             }))
-            .observe(clone!((show_search) move |_: Trigger<HideSearch>| {
+            .observe(clone!((show_search) move |_: On<HideSearch>| {
                 show_search.set_neq(false);
             }))
-            .observe(clone!((first_target_focused, show_targeting, show_search) move |_: Trigger<ShowTargeting>, input_focus: Res<InputFocus>, aalo_text_inputs: Query<&AaloTextInput>| {
+            .observe(clone!((first_target_focused, show_targeting, show_search) move |_: On<ShowTargeting>, input_focus: Res<InputFocus>, aalo_text_inputs: Query<&AaloTextInput>| {
                 if input_focus.0.is_none_or(|focused| !aalo_text_inputs.contains(focused)) {
                     show_search.set_neq(false);
                     first_target_focused.set_neq(true);
                     show_targeting.set_neq(true);
                 }
             }))
-            .observe(clone!((show_targeting) move |_: Trigger<HideTargeting>| {
+            .observe(clone!((show_targeting) move |_: On<HideTargeting>| {
                 show_targeting.set_neq(false);
             }))
-            .observe(clone!((search_focused, show_search, show_targeting, search_target_root_focused, targeting_target_root_focused, targeting_target_root) move |event: Trigger<Tab>| {
+            .observe(clone!((search_focused, show_search, show_targeting, search_target_root_focused, targeting_target_root_focused, targeting_target_root) move |event: On<TabEvent>| {
                 if show_search.get() {
                     let focuseds = [search_target_root_focused.clone(), search_focused.clone()];
-                    iter_focused(&focuseds, event.event());
+                    iter_focused(&focuseds, &event.tab);
                 }
                 if show_targeting.get() {
                     let mut focuseds = vec![targeting_target_root_focused.clone(), first_target_focused.clone(), second_target_focused.clone()];
                     if !matches!(targeting_target_root.get(), InspectionTargetRoot::Resource) {
                         focuseds.push(third_target_focused.clone());
                     }
-                    iter_focused(&focuseds, event.event());
+                    iter_focused(&focuseds, &event.tab);
                 }
             }))
-            .observe(clone!((search_target_root, targeting_target_root) move |event: Trigger<TargetRootMove>| {
+            .observe(clone!((search_target_root, targeting_target_root) move |event: On<TargetRootMoveEvent>| {
                 if show_search.get() && search_target_root_focused.get() {
-                    iter_target_root(&search_target_root, event.event());
+                    iter_target_root(&search_target_root, &event.move_);
                 }
                 if show_targeting.get() && targeting_target_root_focused.get() {
-                    iter_target_root(&targeting_target_root, event.event());
+                    iter_target_root(&targeting_target_root, &event.move_);
                 }
             }))
         }))
@@ -2405,11 +2416,17 @@ pub struct AssetRoot {
 #[derive(Component)]
 struct RootHeader;
 
-#[derive(Event)]
-struct ComponentsAdded(Vec<ComponentId>);
+#[derive(EntityEvent)]
+struct ComponentsAdded {
+    entity: Entity,
+    components: Vec<ComponentId>,
+}
 
-#[derive(Event)]
-struct ComponentsRemoved(Vec<ComponentId>);
+#[derive(EntityEvent)]
+struct ComponentsRemoved {
+    entity: Entity,
+    components: Vec<ComponentId>,
+}
 
 #[derive(Clone)]
 enum MultiFieldData {
@@ -2647,12 +2664,12 @@ fn entity_header(
                     ("bevy_window::monitor::Monitor", "Monitor"),
                     ("bevy_picking::pointer::PointerId", "Pointer"),
                 ];
-                let type_names = archetype.components().filter_map(|id| {
+                let type_names = archetype.components().iter().filter_map(|&id| {
                     components.get_info(id).map(|info| info.name())
                 });
                 for component_type in type_names {
                     for &(name, matches) in associations {
-                        if component_type == name {
+                        if component_type == name.into() {
                             guessed_name.set(matches.to_string());
                             return
                         }
@@ -2695,8 +2712,8 @@ struct AssetsHeader;
 
 fn sync_on_expanded_and_visibility<T: Component + Default>(el: RawHaalkaEl) -> RawHaalkaEl {
     el.observe(
-        |event: Trigger<OnAdd, Visible>, expandeds: Query<&Expanded>, mut commands: Commands| {
-            let entity = event.target();
+        |event: On<Add, Visible>, expandeds: Query<&Expanded>, mut commands: Commands| {
+            let entity = event.entity;
             if expandeds.contains(entity)
                 && let Ok(mut entity) = commands.get_entity(entity)
             {
@@ -2704,15 +2721,15 @@ fn sync_on_expanded_and_visibility<T: Component + Default>(el: RawHaalkaEl) -> R
             }
         },
     )
-    .observe(|event: Trigger<OnRemove, Visible>, mut commands: Commands| {
-        let entity = event.target();
+    .observe(|event: On<Remove, Visible>, mut commands: Commands| {
+        let entity = event.entity;
         if let Ok(mut entity) = commands.get_entity(entity) {
             entity.remove::<T>();
         }
     })
     .observe(
-        |event: Trigger<OnAdd, Expanded>, visibles: Query<&Visible>, mut commands: Commands| {
-            let entity = event.target();
+        |event: On<Add, Expanded>, visibles: Query<&Visible>, mut commands: Commands| {
+            let entity = event.entity;
             if visibles.contains(entity)
                 && let Ok(mut entity) = commands.get_entity(entity)
             {
@@ -2720,8 +2737,8 @@ fn sync_on_expanded_and_visibility<T: Component + Default>(el: RawHaalkaEl) -> R
             }
         },
     )
-    .observe(|event: Trigger<OnRemove, Expanded>, mut commands: Commands| {
-        let entity = event.target();
+    .observe(|event: On<Remove, Expanded>, mut commands: Commands| {
+        let entity = event.entity;
         if let Ok(mut entity) = commands.get_entity(entity) {
             entity.remove::<T>();
         }
@@ -2780,13 +2797,13 @@ impl ElementWrapper for MultiFieldElement {
             .component_signal::<Expanded, _>(expanded.signal().dedupe().map_true(default))
             .apply(listen_to_expanded_component(expanded.clone()))
             .observe(clone!((expanded, data) move |
-                event: Trigger<CheckInspectionTargets>,
+                event: On<CheckInspectionTargets>,
                 child_ofs: Query<&ChildOf>,
                 childrens: Query<&Children>,
                 inspection_targets: Query<&InspectionTarget>,
                 mut commands: Commands
             | {
-                let ui_entity = event.target();
+                let ui_entity = event.0;
                 for parent in child_ofs.iter_ancestors(ui_entity) {
                     if let Ok(target) = inspection_targets.get(parent)
                         && matches!(target.root, InspectionTargetRoot::Entity | InspectionTargetRoot::Asset)
@@ -2821,7 +2838,9 @@ impl ElementWrapper for MultiFieldElement {
                                         // TODO: use relations to safely get the entity's component children
                                         if let Some(&child) = i_born(ui_entity, &childrens, 1)
                                             && let Ok(children) = childrens.get(child) {
-                                                commands.trigger_targets(CheckInspectionTargets, children.into_iter().copied().collect::<Vec<_>>());
+                                                for &child in children {
+                                                    commands.trigger(CheckInspectionTargets(child));
+                                                }
                                             }
                                     }
                                     expanded.set_neq(true);
@@ -2831,12 +2850,12 @@ impl ElementWrapper for MultiFieldElement {
                 }
             }))
             .apply(scroll_to_header_on_birth)
-            .on_spawn_with_system(|In(entity), mut commands: Commands| commands.trigger_targets(CheckInspectionTargets, entity));
+            .on_spawn_with_system(|In(entity), mut commands: Commands| commands.trigger(CheckInspectionTargets(entity)));
             match &data {
                 MultiFieldData::Entity { data: EntityData { components, .. }, .. }  => {
                     raw_el = raw_el
-                    .observe(clone!((components => components_map) move |event: Trigger<ComponentsAdded>, components: &Components| {
-                        let ComponentsAdded(added) = event.event();
+                    .observe(clone!((components => components_map) move |event: On<ComponentsAdded>, components: &Components| {
+                        let ComponentsAdded { components: added, .. } = event.event();
                         let mut lock = components_map.lock_mut();
                         for &component in added {
                             if let Some(info) = components.get_info(component) {
@@ -2844,8 +2863,8 @@ impl ElementWrapper for MultiFieldElement {
                             }
                         }
                     }))
-                    .observe(clone!((components) move |event: Trigger<ComponentsRemoved>| {
-                        let ComponentsRemoved(removed) = event.event();
+                    .observe(clone!((components) move |event: On<ComponentsRemoved>| {
+                        let ComponentsRemoved { components: removed, .. } = event.event();
                         let mut lock = components.lock_mut();
                         for id in removed {
                             lock.remove(id);
@@ -2855,15 +2874,15 @@ impl ElementWrapper for MultiFieldElement {
                 },
                 MultiFieldData::Asset { data: AssetData { handles, .. }, .. } => {
                     raw_el = raw_el
-                    .observe(clone!((handles) move |event: Trigger<AssetHandlesAdded>, asset_server: Res<AssetServer>| {
-                        let AssetHandlesAdded(added) = event.event();
+                    .observe(clone!((handles) move |event: On<AssetsAdded>, asset_server: Res<AssetServer>| {
+                        let AssetsAdded { assets: added, .. } = event.event();
                         let mut lock = handles.lock_mut();
                         for &handle in added {
                             lock.insert_cloned(handle, FieldData { name: handle_name(handle, &asset_server), ..default() });
                         }
                     }))
-                    .observe(clone!((handles) move |event: Trigger<AssetHandlesRemoved>| {
-                        let AssetHandlesRemoved(removed) = event.event();
+                    .observe(clone!((handles) move |event: On<AssetsRemoved>| {
+                        let AssetsRemoved { assets: removed, .. } = event.event();
                         let mut lock = handles.lock_mut();
                         for id in removed {
                             lock.remove(id);
@@ -3157,8 +3176,8 @@ fn field_header(
     )
 }
 
-#[derive(Event)]
-struct CheckInspectionTargets;
+#[derive(EntityEvent)]
+struct CheckInspectionTargets(Entity);
 
 #[allow(clippy::too_many_arguments)]
 fn object_type_header_with_count(
@@ -3185,17 +3204,17 @@ fn object_type_header_with_count(
         .insert(HeaderData { pinned: pinned.clone(), expanded: expanded.clone() })
         .component_signal::<Expanded, _>(expanded.signal().dedupe().map_true(default))
         .apply(listen_to_expanded_component(expanded.clone()))
-        .observe(move |event: Trigger<OnRemove, Expanded>, mut commands: Commands| {
-            commands.trigger_targets(RootCollapsed(root), event.target());
+        .observe(move |event: On<Remove, Expanded>, mut commands: Commands| {
+            commands.trigger(RootCollapsed { entity: event.entity, root });
         })
         .observe(clone!((expanded) move |
-            event: Trigger<CheckInspectionTargets>,
+            event: On<CheckInspectionTargets>,
             child_ofs: Query<&ChildOf>,
             inspection_targets: Query<&InspectionTarget>,
             childrens: Query<&Children>,
             mut commands: Commands
         | {
-            let ui_entity = event.target();
+            let ui_entity = event.0;
             for parent in child_ofs.iter_ancestors(ui_entity) {
                 if let Ok(target) = inspection_targets.get(parent)
                     && target.root == root {
@@ -3207,7 +3226,9 @@ fn object_type_header_with_count(
                         }
                         if let Some(&child) = i_born(ui_entity, &childrens, 1)
                             && let Ok(children) = childrens.get(child) {
-                                commands.trigger_targets(CheckInspectionTargets, children.into_iter().copied().collect::<Vec<_>>());
+                                for &child in children {
+                                    commands.trigger(CheckInspectionTargets(child));
+                                }
                             }
                         expanded.set_neq(true);
                         return
@@ -3215,7 +3236,7 @@ fn object_type_header_with_count(
             }
         }))
         .apply(scroll_to_header_on_birth)
-        .on_spawn_with_system(|In(entity), mut commands: Commands| commands.trigger_targets(CheckInspectionTargets, entity))
+        .on_spawn_with_system(|In(entity), mut commands: Commands| commands.trigger(CheckInspectionTargets(entity)))
     })
     .item(
         // TODO: use text spans for this
@@ -3371,7 +3392,7 @@ impl FieldElement {
                 .component_signal::<Expanded, _>(expanded.signal().dedupe().map_true(default))
                 .apply(listen_to_expanded_component(expanded.clone()))
                 .observe(clone!((expanded, field_type) move |
-                    event: Trigger<CheckInspectionTargets>,
+                    event: On<CheckInspectionTargets>,
                     child_ofs: Query<&ChildOf>,
                     childrens: Query<&Children>,
                     progresses: Query<&InspectionTargetProgress>,
@@ -3379,7 +3400,7 @@ impl FieldElement {
                     fields_columns: Query<&FieldsColumn>,
                     mut commands: Commands
                 | {
-                    let ui_entity = event.target();
+                    let ui_entity = event.0;
                     for parent in child_ofs.iter_ancestors(ui_entity) {
                         // TODO: this should just be generalized for every header (a lot of logic repeated for multi fields + fields)
                         let mut pending_option = None;
@@ -3430,7 +3451,9 @@ impl FieldElement {
                                     for child in childrens.iter_descendants(ui_entity) {
                                         if fields_columns.contains(child) {
                                             if let Ok(children) = childrens.get(child) {
-                                                commands.trigger_targets(CheckInspectionTargets, children.into_iter().copied().collect::<Vec<_>>());
+                                                for &child in children {
+                                                    commands.trigger(CheckInspectionTargets(child));
+                                                }
                                             }
                                             break;
                                         }
@@ -3443,7 +3466,7 @@ impl FieldElement {
                     }
                 }))
                 .apply(scroll_to_header_on_birth)
-                .on_spawn_with_system(|In(entity), mut commands: Commands| commands.trigger_targets(CheckInspectionTargets, entity))
+                .on_spawn_with_system(|In(entity), mut commands: Commands| commands.trigger(CheckInspectionTargets(entity)))
                 .on_spawn(clone!((viewability, node_type, type_path, enum_data_option, field_type) move |world, ui_entity| {
                     // TODO: more intelligent way to get this height? waiting for node to reach "full size" is pretty cringe
                     let mut field_path_option = None;
@@ -4709,14 +4732,15 @@ where
         // TODO: without this initial static value, width snaps from 100% due to signal runtime lag
         .update_raw_el(clone!((value, dragging, focused) move |raw_el| {
             raw_el
-            .on_event_with_system_stop_propagation::<Pointer<DragStart>, _>(clone!((highlight, dragging, value, focused) move |In((entity, drag_start)): In<(Entity, Pointer<DragStart>)>, mut commands: Commands| {
+            .observe(clone!((highlight, dragging, value, focused) move |mut drag_start: On<Pointer<DragStart>>, mut commands: Commands| {
+                drag_start.propagate(false);
                 if focused.get() {
                     return;
                 }
                 if matches!(drag_start.button, PointerButton::Primary) {
                     commands.insert_resource(CursorOnHoverDisabled);
                     commands.insert_resource(UpdateHoverStatesDisabled);
-                    if let Ok(mut entity) = commands.get_entity(entity) {
+                    if let Ok(mut entity) = commands.get_entity(drag_start.entity) {
                         entity.try_insert(DragInitial::<T>(value.get()));
                     }
                     highlight.set_neq(true);
@@ -4725,26 +4749,29 @@ where
                     dragging.set_neq(true);
                 }
             }))
-            .on_event_with_system_stop_propagation::<Pointer<DragEnd>, _>(clone!((dragging) move |In((entity, drag_end)): In<(Entity, Pointer<DragEnd>)>, mut commands: Commands| {
+            .observe(clone!((dragging) move |mut drag_end: On<Pointer<DragEnd>>, mut commands: Commands| {
+                drag_end.propagate(false);
                 if matches!(drag_end.button, PointerButton::Primary) {
                     commands.remove_resource::<CursorOnHoverDisabled>();
                     commands.remove_resource::<UpdateHoverStatesDisabled>();
-                    if let Ok(mut entity) = commands.get_entity(entity) {
+                    if let Ok(mut entity) = commands.get_entity(drag_end.entity) {
                         entity.remove::<DragInitial<T>>();
                     }
                     highlight.set_neq(false);
                     dragging.set_neq(false);
                 }
             }))
-            .on_event_with_system_stop_propagation::<Pointer<Drag>, _>(move |
-                In((ui_entity, drag)): In<(Entity, Pointer<Drag>)>,
+            .observe(move |
+                mut drag: On<Pointer<Drag>>,
                 drag_initials: Query<&DragInitial<T>>,
                 mut field: TargetField
             | {
+                drag.propagate(false);
                 if matches!(drag.button, PointerButton::Primary) {
                     // TODO: dragstart on web is triggering on down
                     #[cfg(target_arch = "wasm32")]
                     dragging.set_neq(true);
+                    let ui_entity = drag.entity;
                     if let Ok(&DragInitial(initial)) = drag_initials.get(ui_entity) {
                         let cur = value.get();
                         let new = if !T::IS_INTEGRAL {
@@ -4818,7 +4845,7 @@ where
             text_input
                 .with_text_input_node(|mut node| {
                     node.mode = TextInputMode::SingleLine;
-                    node.justification = JustifyText::Center;
+                    node.justification = Justify::Center;
                 })
                 .on_signal_with_text_input_node(focused.signal(), |mut node, focused| {
                     node.focus_on_pointer_down = focused;
@@ -5035,16 +5062,22 @@ fn sync_components(
         if let Some(location) = entities.get(entity_root.entity)
             && let Some(archetype) = archetypes.get(location.archetype_id)
         {
-            let new = archetype.components().collect::<HashSet<_>>();
+            let new = archetype.components().iter().copied().collect::<HashSet<_>>();
             let added = new.difference(&entity_root.components).copied().collect::<Vec<_>>();
             let removed = entity_root.components.difference(&new).copied().collect::<Vec<_>>();
             entity_root.components = new;
             if let Ok(mut entity) = commands.get_entity(ui_entity) {
                 if !added.is_empty() {
-                    entity.trigger(ComponentsAdded(added));
+                    entity.trigger(|entity| ComponentsAdded {
+                        entity,
+                        components: added,
+                    });
                 }
                 if !removed.is_empty() {
-                    entity.trigger(ComponentsRemoved(removed));
+                    entity.trigger(|entity| ComponentsRemoved {
+                        entity,
+                        components: removed,
+                    });
                 }
                 entity.remove::<SyncComponentsOnce>();
             }
@@ -5568,9 +5601,11 @@ impl<'w, 's> MaybeScrollToHeaderRoot<'w, 's> {
                     }
                     if let Some(rect) = self.header_pinner.logical_rect.get(entity) {
                         let offset = expanded_ancestors as f32 * rect.size().y;
-                        self.header_pinner.sync(inspector_column, top - offset);
-                        let scrolled = scroll_position.offset_y != top - offset;
-                        scroll_position.offset_y = top - offset;
+                        // Floor to match Bevy 0.17's physical_scroll_position calculation in ui_layout_system
+                        let target_y = (top - offset).floor();
+                        self.header_pinner.sync(inspector_column, target_y);
+                        let scrolled = scroll_position.y != target_y;
+                        scroll_position.y = target_y;
                         return scrolled;
                     }
                 }
@@ -5582,18 +5617,22 @@ impl<'w, 's> MaybeScrollToHeaderRoot<'w, 's> {
 }
 
 fn on_scroll_header_pinner(
-    // need to use Trigger<MouseWheel> directly because .on_scroll handlers race with each other and this needs to run
-    // before ScrollPosition is updated by the basic scroll handler
-    event: Trigger<MouseWheel>,
+    // need to use On<MouseWheelEntityEvent> directly because .on_scroll handlers race with each other and this needs
+    // to run before ScrollPosition is updated by the basic scroll handler
+    event: On<MouseWheelEvent>,
     scroll_positions: Query<&ScrollPosition>,
     mut header_pinner: HeaderPinner,
 ) {
-    let &MouseWheel { unit, y, .. } = event.event();
+    let &MouseWheelEvent {
+        mouse_wheel: MouseWheel { unit, y, .. },
+        ..
+    } = event.event();
     // TODO: this should be configurable
     let dy = scroll_normalizer(unit, y, DEFAULT_SCROLL_PIXELS);
-    let inspector_column = event.target();
-    if let Ok(ScrollPosition { offset_y, .. }) = scroll_positions.get(inspector_column) {
-        header_pinner.sync(inspector_column, (offset_y - dy).max(0.));
+    let inspector_column = event.entity;
+    if let Ok(ScrollPosition(Vec2 { y, .. })) = scroll_positions.get(inspector_column) {
+        // Floor to match Bevy 0.17's physical_scroll_position calculation in ui_layout_system
+        header_pinner.sync(inspector_column, (y - dy).max(0.).floor());
     };
 }
 
@@ -5655,8 +5694,8 @@ pub struct WaitForBirth {
     ceiling: Option<Entity>,
 }
 
-#[derive(Event)]
-pub struct Born;
+#[derive(EntityEvent)]
+pub struct Born(Entity);
 
 fn wait_for_birth(
     mut birth_waiters: Query<(Entity, &mut WaitForBirth)>,
@@ -5718,22 +5757,27 @@ fn sync_names(names: Query<(Entity, &Name), Changed<Name>>, entity_roots: Query<
     }
 }
 
-#[derive(Event)]
-struct ShowSearch;
+#[derive(EntityEvent)]
+struct ShowSearch(Entity);
 
-#[derive(Event)]
-struct HideSearch;
+#[derive(EntityEvent)]
+struct HideSearch(Entity);
 
-#[derive(Event)]
-struct ShowTargeting;
+#[derive(EntityEvent)]
+struct ShowTargeting(Entity);
 
-#[derive(Event)]
-struct HideTargeting;
+#[derive(EntityEvent)]
+struct HideTargeting(Entity);
 
-#[derive(Event)]
 enum Tab {
     Up,
     Down,
+}
+
+#[derive(EntityEvent)]
+struct TabEvent {
+    entity: Entity,
+    tab: Tab,
 }
 
 // TODO: make hotkeys configurable
@@ -5746,41 +5790,58 @@ fn hotkey_forwarder(
         // released because pressed causes input to be inserted into the text input on release build
         // (2fast4me)
         if keys.just_released(KeyCode::Slash) {
-            commands.trigger_targets(ShowSearch, selected_inspector.0);
+            commands.trigger(ShowSearch(selected_inspector.0));
         }
         if (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight))
             && keys.just_released(KeyCode::Semicolon)
         {
-            commands.trigger_targets(ShowTargeting, selected_inspector.0);
+            commands.trigger(ShowTargeting(selected_inspector.0));
         }
         if keys.just_pressed(KeyCode::Escape) {
-            commands.trigger_targets(HideSearch, selected_inspector.0);
-            commands.trigger_targets(HideTargeting, selected_inspector.0);
+            commands.trigger(HideSearch(selected_inspector.0));
+            commands.trigger(HideTargeting(selected_inspector.0));
         }
         if keys.just_pressed(KeyCode::Tab) {
             if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
-                commands.trigger_targets(Tab::Down, selected_inspector.0);
+                commands.trigger(TabEvent {
+                    entity: selected_inspector.0,
+                    tab: Tab::Down,
+                });
             } else {
-                commands.trigger_targets(Tab::Up, selected_inspector.0);
+                commands.trigger(TabEvent {
+                    entity: selected_inspector.0,
+                    tab: Tab::Up,
+                });
             }
         }
         if keys.just_pressed(KeyCode::ArrowLeft) {
-            commands.trigger_targets(TargetRootMove::Left, selected_inspector.0);
+            commands.trigger(TargetRootMoveEvent {
+                entity: selected_inspector.0,
+                move_: TargetRootMove::Left,
+            });
         }
         if keys.just_pressed(KeyCode::ArrowRight) {
-            commands.trigger_targets(TargetRootMove::Right, selected_inspector.0);
+            commands.trigger(TargetRootMoveEvent {
+                entity: selected_inspector.0,
+                move_: TargetRootMove::Right,
+            });
         }
     }
 }
 
-#[derive(Event)]
 enum TargetRootMove {
     Left,
     Right,
 }
 
-#[derive(Event)]
-pub struct SizeReached;
+#[derive(EntityEvent)]
+struct TargetRootMoveEvent {
+    entity: Entity,
+    move_: TargetRootMove,
+}
+
+#[derive(EntityEvent)]
+pub struct SizeReached(Entity);
 
 fn wait_for_size(data: Query<(Entity, &WaitForSize)>, computed_nodes: Query<&ComputedNode>, mut commands: Commands) {
     for (entity, &WaitForSize(size_option)) in data.iter() {
@@ -5792,7 +5853,7 @@ fn wait_for_size(data: Query<(Entity, &WaitForSize)>, computed_nodes: Query<&Com
                 size.x > 0. && size.y > 0.
             };
             if trigger {
-                commands.trigger_targets(SizeReached, entity);
+                commands.trigger(SizeReached(entity));
             }
         }
     }
@@ -5825,17 +5886,20 @@ impl<'w, 's> ResizeParentCache<'w, 's> {
 
 pub fn manage_dragging_component(el: RawHaalkaEl) -> RawHaalkaEl {
     // TODO: this should be DragStart but looks like on web all Down's are DragStart's ?
-    el.on_event_with_system::<Pointer<Drag>, _>(|In((entity, _)), mut commands: Commands| {
-        if let Ok(mut entity) = commands.get_entity(entity) {
+    el.observe(|drag: On<Pointer<Drag>>, mut commands: Commands| {
+        if let Ok(mut entity) = commands.get_entity(drag.entity) {
             entity.try_insert(Dragging);
         }
     })
-    .on_event_with_system::<Pointer<DragEnd>, _>(|In((entity, _)), mut commands: Commands| {
-        if let Ok(mut entity) = commands.get_entity(entity) {
+    .observe(|drag_end: On<Pointer<DragEnd>>, mut commands: Commands| {
+        if let Ok(mut entity) = commands.get_entity(drag_end.entity) {
             entity.remove::<Dragging>();
         }
     })
 }
+
+#[derive(Component)]
+struct Disabled;
 
 // this is cursed, do not use this, wait for this https://github.com/bevyengine/bevy/issues/14773
 pub fn resize_border<E: Element>(
@@ -5890,7 +5954,10 @@ pub fn resize_border<E: Element>(
             .layer({
                 El::<Node>::new()
                     .apply(padding_style(BoxEdge::ALL, border_width.signal()))
-                    .with_node(|mut node| node.overflow = Overflow::clip())
+                    .with_node(|mut node| {
+                        node.overflow = Overflow::clip();
+                        node.overflow_clip_margin = OverflowClipMargin::content_box();
+                    })
                     .child(
                         el.apply(border_radius_style(BoxCorner::ALL, radius.signal()))
                             .update_raw_el(|raw_el| {
@@ -5986,115 +6053,122 @@ pub fn resize_border<E: Element>(
                             raw_el
                         .apply(manage_dragging_component)
                         .apply(trigger_double_click::<Dragging>)
-                        .on_event_with_system_disableable_signal::<DoubleClick, _>(
+                        .component_signal::<Disabled, _>(disabled.signal().map_true(|| Disabled))
+                        .observe(
                             move |
-                                In((entity, _)),
+                                double_click: On<DoubleClick>,
                                 resize_parent_cache: ResizeParentCache,
+                                disableds: Query<&Disabled>,
                                 mut nodes: Query<&mut Node>,
                             | {
-                                if let Some(resize_parent) = resize_parent_cache.get(entity)
-                                    && let Ok(mut node) = nodes.get_mut(resize_parent) {
-                                        if matches!(edge, BoxEdge::Top | BoxEdge::Bottom) {
-                                            node.height = Val::Px(DEFAULT_HEIGHT);
-                                        } else {
-                                            node.width = Val::Px(DEFAULT_WIDTH);
+                                let entity = double_click.0;
+                                if !disableds.contains(entity)
+                                    && let Some(resize_parent) = resize_parent_cache.get(entity)
+                                        && let Ok(mut node) = nodes.get_mut(resize_parent) {
+                                            if matches!(edge, BoxEdge::Top | BoxEdge::Bottom) {
+                                                node.height = Val::Px(DEFAULT_HEIGHT);
+                                            } else {
+                                                node.width = Val::Px(DEFAULT_WIDTH);
+                                            }
                                         }
-                                    }
                             },
-                            disabled.signal()
                         )
-                        .on_event_with_system_disableable_signal::<Pointer<Pressed>, _>(
-                            clone!((edge_downs) move |In((_, down)): In<(_, Pointer<Pressed>)>, world: &mut World| {
-                                let mut new = vec![];
-                                if matches!(down.button, PointerButton::Primary) {
-                                    match edge {
-                                        BoxEdge::Top => {
-                                            edge_downs[0].set_neq(true);
-                                            new.push(Box::new(clone!((edge_downs) move || {
-                                                edge_downs[0].set_neq(false);
-                                            })) as Box<_>);
-                                        },
-                                        BoxEdge::Bottom => {
-                                            edge_downs[1].set_neq(true);
-                                            new.push(Box::new(clone!((edge_downs) move || {
-                                                edge_downs[1].set_neq(false);
-                                            })) as Box<_>);
-                                        },
-                                        BoxEdge::Left => {
-                                            edge_downs[2].set_neq(true);
-                                            new.push(Box::new(clone!((edge_downs) move || {
-                                                edge_downs[2].set_neq(false);
-                                            })) as Box<_>);
-                                        },
-                                        BoxEdge::Right => {
-                                            edge_downs[3].set_neq(true);
-                                            new.push(Box::new(clone!((edge_downs) move || {
-                                                edge_downs[3].set_neq(false);
-                                            })) as Box<_>);
-                                        },
-                                    }
-                                }
-                                if let Some(mut handlers) = world.get_resource_mut::<OnPointerUpHandlers>() {
-                                    handlers.0.extend(new);
-                                } else {
-                                    world.insert_resource(OnPointerUpHandlers(new));
-                                };
-                            }),
-                            disabled.signal(),
-                        )
-                        .on_event_with_system_disableable_signal::<Pointer<DragStart>, _>(
-                            |In((_, drag_start)): In<(_, Pointer<DragStart>)>, mut commands: Commands| {
-                                if matches!(drag_start.button, PointerButton::Primary) {
-                                    commands.insert_resource(CursorOnHoverDisabled);
-                                    commands.insert_resource(UpdateHoverStatesDisabled);
-                                }
-                            },
-                            disabled.signal(),
-                        )
-                        .on_event_with_system_disableable_signal::<Pointer<DragEnd>, _>(
-                            |In((_, drag_end)): In<(_, Pointer<DragEnd>)>, mut commands: Commands| {
-                                if matches!(drag_end.button, PointerButton::Primary) {
-                                    commands.remove_resource::<CursorOnHoverDisabled>();
-                                    commands.remove_resource::<UpdateHoverStatesDisabled>();
-                                }
-                            },
-                            disabled.signal(),
-                        )
-                        .on_event_with_system_disableable_signal::<Pointer<Drag>, _>(
-                            move |In((entity, drag)): In<(Entity, Pointer<Drag>)>,
-                                resize_parent_cache: ResizeParentCache,
-                                mut nodes: Query<&mut Node>| {
-                            if matches!(drag.button, PointerButton::Primary)
-                                && let Some(resize_parent) = resize_parent_cache.get(entity)
-                                    && let Ok(mut node) = nodes.get_mut(resize_parent) {
+                        .observe(
+                            clone!((edge_downs) move |press: On<Pointer<Press>>, disableds: Query<&Disabled>, on_pointer_up_handlers_option: Option<ResMut<OnPointerUpHandlers>>, mut commands: Commands| {
+                                if !disableds.contains(press.entity) {
+                                    let mut new = vec![];
+                                    if matches!(press.button, PointerButton::Primary) {
                                         match edge {
                                             BoxEdge::Top => {
-                                                if let Val::Px(cur) = node.height {
-                                                    node.height = Val::Px(cur - drag.delta.y);
-                                                }
-                                                let cur = if let Val::Px(cur) = node.top { cur } else { 0. };
-                                                node.top = Val::Px(cur + drag.delta.y);
-                                            }
+                                                edge_downs[0].set_neq(true);
+                                                new.push(Box::new(clone!((edge_downs) move || {
+                                                    edge_downs[0].set_neq(false);
+                                                })) as Box<_>);
+                                            },
                                             BoxEdge::Bottom => {
-                                                if let Val::Px(cur) = node.height {
-                                                    node.height = Val::Px(cur + drag.delta.y);
-                                                }
-                                            }
+                                                edge_downs[1].set_neq(true);
+                                                new.push(Box::new(clone!((edge_downs) move || {
+                                                    edge_downs[1].set_neq(false);
+                                                })) as Box<_>);
+                                            },
                                             BoxEdge::Left => {
-                                                if let Val::Px(cur) = node.width {
-                                                    node.width = Val::Px(cur - drag.delta.x);
-                                                }
-                                                let cur = if let Val::Px(cur) = node.left { cur } else { 0. };
-                                                node.left = Val::Px(cur + drag.delta.x);
-                                            }
+                                                edge_downs[2].set_neq(true);
+                                                new.push(Box::new(clone!((edge_downs) move || {
+                                                    edge_downs[2].set_neq(false);
+                                                })) as Box<_>);
+                                            },
                                             BoxEdge::Right => {
-                                                if let Val::Px(cur) = node.width {
-                                                    node.width = Val::Px(cur + drag.delta.x);
+                                                edge_downs[3].set_neq(true);
+                                                new.push(Box::new(clone!((edge_downs) move || {
+                                                    edge_downs[3].set_neq(false);
+                                                })) as Box<_>);
+                                            },
+                                        }
+                                    }
+                                    if let Some(mut handlers) = on_pointer_up_handlers_option {
+                                        handlers.0.extend(new);
+                                    } else {
+                                        commands.insert_resource(OnPointerUpHandlers(new));
+                                    };
+                                }
+                            }),
+                        )
+                        .observe(
+                            |drag_start: On<Pointer<DragStart>>, disableds: Query<&Disabled>, mut commands: Commands| {
+                                if !disableds.contains(drag_start.entity)
+                                    && matches!(drag_start.button, PointerButton::Primary) {
+                                        commands.insert_resource(CursorOnHoverDisabled);
+                                        commands.insert_resource(UpdateHoverStatesDisabled);
+                                    }
+                            },
+                        )
+                        .observe(
+                            |drag_end: On<Pointer<DragEnd>>, disableds: Query<&Disabled>, mut commands: Commands| {
+                                if !disableds.contains(drag_end.entity)
+                                    && matches!(drag_end.button, PointerButton::Primary) {
+                                        commands.remove_resource::<CursorOnHoverDisabled>();
+                                        commands.remove_resource::<UpdateHoverStatesDisabled>();
+                                    }
+                            },
+                        )
+                        .observe(
+                            move |drag: On<Pointer<Drag>>,
+                                disableds: Query<&Disabled>,
+                                resize_parent_cache: ResizeParentCache,
+                                mut nodes: Query<&mut Node>| {
+                            let entity = drag.entity;
+                            if !disableds.contains(entity)
+                                && matches!(drag.button, PointerButton::Primary)
+                                    && let Some(resize_parent) = resize_parent_cache.get(entity)
+                                        && let Ok(mut node) = nodes.get_mut(resize_parent) {
+                                            match edge {
+                                                BoxEdge::Top => {
+                                                    if let Val::Px(cur) = node.height {
+                                                        node.height = Val::Px(cur - drag.delta.y);
+                                                    }
+                                                    let cur = if let Val::Px(cur) = node.top { cur } else { 0. };
+                                                    node.top = Val::Px(cur + drag.delta.y);
+                                                }
+                                                BoxEdge::Bottom => {
+                                                    if let Val::Px(cur) = node.height {
+                                                        node.height = Val::Px(cur + drag.delta.y);
+                                                    }
+                                                }
+                                                BoxEdge::Left => {
+                                                    if let Val::Px(cur) = node.width {
+                                                        node.width = Val::Px(cur - drag.delta.x);
+                                                    }
+                                                    let cur = if let Val::Px(cur) = node.left { cur } else { 0. };
+                                                    node.left = Val::Px(cur + drag.delta.x);
+                                                }
+                                                BoxEdge::Right => {
+                                                    if let Val::Px(cur) = node.width {
+                                                        node.width = Val::Px(cur + drag.delta.x);
+                                                    }
                                                 }
                                             }
                                         }
-                                    }},
-                            disabled.signal(),
+                            }
                         )
                         }
                     ))
@@ -6146,139 +6220,145 @@ pub fn resize_border<E: Element>(
                         raw_el
                         .apply(manage_dragging_component)
                         .apply(trigger_double_click::<Dragging>)
-                        .on_event_with_system_disableable_signal::<DoubleClick, _>(
+                        .component_signal::<Disabled, _>(disabled.signal().map_true(|| Disabled))
+                        .observe(
                             |
-                                In((entity, _)),
+                                double_click: On<DoubleClick>,
+                                disableds: Query<&Disabled>,
                                 resize_parent_cache: ResizeParentCache,
                                 mut nodes: Query<&mut Node>,
                             | {
-                                if let Some(resize_parent) = resize_parent_cache.get(entity)
-                                    && let Ok(mut node) = nodes.get_mut(resize_parent) {
-                                        node.height = Val::Px(DEFAULT_HEIGHT);
-                                        node.width = Val::Px(DEFAULT_WIDTH);
-                                    }
+                                let entity = double_click.0;
+                                if !disableds.contains(entity)
+                                    && let Some(resize_parent) = resize_parent_cache.get(entity)
+                                        && let Ok(mut node) = nodes.get_mut(resize_parent) {
+                                            node.height = Val::Px(DEFAULT_HEIGHT);
+                                            node.width = Val::Px(DEFAULT_WIDTH);
+                                        }
                             },
-                            disabled.signal(),
                         )
-                        .on_event_with_system_disableable_signal::<Pointer<Pressed>, _>(
-                            clone!((edge_downs) move |In((_, down)): In<(_, Pointer<Pressed>)>, world: &mut World| {
-                                let mut new = vec![];
-                                if matches!(down.button, PointerButton::Primary) {
-                                    match corner {
-                                        BoxCorner::TopLeft => {
-                                            edge_downs[0].set_neq(true);
-                                            edge_downs[2].set_neq(true);
-                                            new.push(Box::new(clone!((edge_downs) move || {
-                                                edge_downs[0].set_neq(false);
-                                                edge_downs[2].set_neq(false);
-                                            })) as Box<_>);
-                                        },
-                                        BoxCorner::TopRight => {
-                                            edge_downs[0].set_neq(true);
-                                            edge_downs[3].set_neq(true);
-                                            new.push(Box::new(clone!((edge_downs) move || {
-                                                edge_downs[0].set_neq(false);
-                                                edge_downs[3].set_neq(false);
-                                            })) as Box<_>);
-                                        },
-                                        BoxCorner::BottomLeft => {
-                                            edge_downs[1].set_neq(true);
-                                            edge_downs[2].set_neq(true);
-                                            new.push(Box::new(clone!((edge_downs) move || {
-                                                edge_downs[1].set_neq(false);
-                                                edge_downs[2].set_neq(false);
-                                            })) as Box<_>);
-                                        },
-                                        BoxCorner::BottomRight => {
-                                            edge_downs[1].set_neq(true);
-                                            edge_downs[3].set_neq(true);
-                                            new.push(Box::new(clone!((edge_downs) move || {
-                                                edge_downs[1].set_neq(false);
-                                                edge_downs[3].set_neq(false);
-                                            })) as Box<_>);
-                                        },
+                        .observe(
+                            clone!((edge_downs) move |press: On<Pointer<Press>>, disableds: Query<&Disabled>, on_pointer_up_handlers_option: Option<ResMut<OnPointerUpHandlers>>, mut commands: Commands| {
+                                if !disableds.contains(press.entity) {
+                                    let mut new = vec![];
+                                    if matches!(press.button, PointerButton::Primary) {
+                                        match corner {
+                                            BoxCorner::TopLeft => {
+                                                edge_downs[0].set_neq(true);
+                                                edge_downs[2].set_neq(true);
+                                                new.push(Box::new(clone!((edge_downs) move || {
+                                                    edge_downs[0].set_neq(false);
+                                                    edge_downs[2].set_neq(false);
+                                                })) as Box<_>);
+                                            },
+                                            BoxCorner::TopRight => {
+                                                edge_downs[0].set_neq(true);
+                                                edge_downs[3].set_neq(true);
+                                                new.push(Box::new(clone!((edge_downs) move || {
+                                                    edge_downs[0].set_neq(false);
+                                                    edge_downs[3].set_neq(false);
+                                                })) as Box<_>);
+                                            },
+                                            BoxCorner::BottomLeft => {
+                                                edge_downs[1].set_neq(true);
+                                                edge_downs[2].set_neq(true);
+                                                new.push(Box::new(clone!((edge_downs) move || {
+                                                    edge_downs[1].set_neq(false);
+                                                    edge_downs[2].set_neq(false);
+                                                })) as Box<_>);
+                                            },
+                                            BoxCorner::BottomRight => {
+                                                edge_downs[1].set_neq(true);
+                                                edge_downs[3].set_neq(true);
+                                                new.push(Box::new(clone!((edge_downs) move || {
+                                                    edge_downs[1].set_neq(false);
+                                                    edge_downs[3].set_neq(false);
+                                                })) as Box<_>);
+                                            },
+                                        }
                                     }
+                                    if let Some(mut handlers) = on_pointer_up_handlers_option {
+                                        handlers.0.extend(new);
+                                    } else {
+                                        commands.insert_resource(OnPointerUpHandlers(new));
+                                    };
                                 }
-                                if let Some(mut handlers) = world.get_resource_mut::<OnPointerUpHandlers>() {
-                                    handlers.0.extend(new);
-                                } else {
-                                    world.insert_resource(OnPointerUpHandlers(new));
-                                };
                             }),
-                            disabled.signal(),
                         )
-                        .on_event_with_system_disableable_signal::<Pointer<DragStart>, _>(
-                            |In((_, drag_start)): In<(_, Pointer<DragStart>)>, mut commands: Commands| {
-                                if matches!(drag_start.button, PointerButton::Primary) {
-                                    commands.insert_resource(CursorOnHoverDisabled);
-                                    commands.insert_resource(UpdateHoverStatesDisabled);
-                                }
+                        .observe(
+                            |drag_start: On<Pointer<DragStart>>, disableds: Query<&Disabled>, mut commands: Commands| {
+                                if !disableds.contains(drag_start.entity)
+                                    && matches!(drag_start.button, PointerButton::Primary) {
+                                        commands.insert_resource(CursorOnHoverDisabled);
+                                        commands.insert_resource(UpdateHoverStatesDisabled);
+                                    }
                             },
-                            disabled.signal(),
                         )
-                        .on_event_with_system_disableable_signal::<Pointer<DragEnd>, _>(
-                            |In((_, drag_end)): In<(_, Pointer<DragEnd>)>, mut commands: Commands| {
-                                if matches!(drag_end.button, PointerButton::Primary) {
-                                    commands.remove_resource::<CursorOnHoverDisabled>();
-                                    commands.remove_resource::<UpdateHoverStatesDisabled>();
-                                }
+                        .observe(
+                            |drag_end: On<Pointer<DragEnd>>, disableds: Query<&Disabled>, mut commands: Commands| {
+                                if !disableds.contains(drag_end.entity)
+                                    && matches!(drag_end.button, PointerButton::Primary) {
+                                        commands.remove_resource::<CursorOnHoverDisabled>();
+                                        commands.remove_resource::<UpdateHoverStatesDisabled>();
+                                    }
                             },
-                            disabled.signal(),
                         )
-                        .on_event_with_system_disableable_signal::<Pointer<Drag>, _>(
+                        .observe(
                             move |
-                                In((entity, drag)): In<(Entity, Pointer<Drag>)>,
+                                drag: On<Pointer<Drag>>,
+                                disableds: Query<&Disabled>,
                                 resize_parent_cache: ResizeParentCache,
                                 mut nodes: Query<&mut Node>
                             | {
-                                if matches!(drag.button, PointerButton::Primary)
-                                    && let Some(resize_parent) = resize_parent_cache.get(entity)
-                                        && let Ok(mut node) = nodes.get_mut(resize_parent) {
-                                            match corner {
-                                                BoxCorner::TopLeft => {
-                                                    if let Val::Px(cur) = node.height {
-                                                        node.height = Val::Px(cur - drag.delta.y);
+                                let entity = drag.entity;
+                                if !disableds.contains(entity)
+                                    && matches!(drag.button, PointerButton::Primary)
+                                        && let Some(resize_parent) = resize_parent_cache.get(entity)
+                                            && let Ok(mut node) = nodes.get_mut(resize_parent) {
+                                                match corner {
+                                                    BoxCorner::TopLeft => {
+                                                        if let Val::Px(cur) = node.height {
+                                                            node.height = Val::Px(cur - drag.delta.y);
+                                                        }
+                                                        let cur = if let Val::Px(cur) = node.top { cur } else { 0. };
+                                                        node.top = Val::Px(cur + drag.delta.y);
+                                                        if let Val::Px(cur) = node.width {
+                                                            node.width = Val::Px(cur - drag.delta.x);
+                                                        }
+                                                        let cur = if let Val::Px(cur) = node.left { cur } else { 0. };
+                                                        node.left = Val::Px(cur + drag.delta.x);
                                                     }
-                                                    let cur = if let Val::Px(cur) = node.top { cur } else { 0. };
-                                                    node.top = Val::Px(cur + drag.delta.y);
-                                                    if let Val::Px(cur) = node.width {
-                                                        node.width = Val::Px(cur - drag.delta.x);
+                                                    BoxCorner::TopRight => {
+                                                        if let Val::Px(cur) = node.height {
+                                                            node.height = Val::Px(cur - drag.delta.y);
+                                                        }
+                                                        let cur = if let Val::Px(cur) = node.top { cur } else { 0. };
+                                                        node.top = Val::Px(cur + drag.delta.y);
+                                                        if let Val::Px(cur) = node.width {
+                                                            node.width = Val::Px(cur + drag.delta.x);
+                                                        }
                                                     }
-                                                    let cur = if let Val::Px(cur) = node.left { cur } else { 0. };
-                                                    node.left = Val::Px(cur + drag.delta.x);
-                                                }
-                                                BoxCorner::TopRight => {
-                                                    if let Val::Px(cur) = node.height {
-                                                        node.height = Val::Px(cur - drag.delta.y);
+                                                    BoxCorner::BottomLeft => {
+                                                        if let Val::Px(cur) = node.height {
+                                                            node.height = Val::Px(cur + drag.delta.y);
+                                                        }
+                                                        if let Val::Px(cur) = node.width {
+                                                            node.width = Val::Px(cur - drag.delta.x);
+                                                        }
+                                                        let cur = if let Val::Px(cur) = node.left { cur } else { 0. };
+                                                        node.left = Val::Px(cur + drag.delta.x);
                                                     }
-                                                    let cur = if let Val::Px(cur) = node.top { cur } else { 0. };
-                                                    node.top = Val::Px(cur + drag.delta.y);
-                                                    if let Val::Px(cur) = node.width {
-                                                        node.width = Val::Px(cur + drag.delta.x);
-                                                    }
-                                                }
-                                                BoxCorner::BottomLeft => {
-                                                    if let Val::Px(cur) = node.height {
-                                                        node.height = Val::Px(cur + drag.delta.y);
-                                                    }
-                                                    if let Val::Px(cur) = node.width {
-                                                        node.width = Val::Px(cur - drag.delta.x);
-                                                    }
-                                                    let cur = if let Val::Px(cur) = node.left { cur } else { 0. };
-                                                    node.left = Val::Px(cur + drag.delta.x);
-                                                }
-                                                BoxCorner::BottomRight => {
-                                                    if let Val::Px(cur) = node.height {
-                                                        node.height = Val::Px(cur + drag.delta.y);
-                                                    }
-                                                    if let Val::Px(cur) = node.width {
-                                                        node.width = Val::Px(cur + drag.delta.x);
+                                                    BoxCorner::BottomRight => {
+                                                        if let Val::Px(cur) = node.height {
+                                                            node.height = Val::Px(cur + drag.delta.y);
+                                                        }
+                                                        if let Val::Px(cur) = node.width {
+                                                            node.width = Val::Px(cur + drag.delta.x);
+                                                        }
                                                     }
                                                 }
                                             }
-                                        }
                             },
-                            disabled.signal(),
                         )
                     }))
                     .apply(square_style(resize_border_width.signal().map(|width| width * 2.)))
@@ -6333,12 +6413,12 @@ struct LightRaysMaterial {
     entity: Entity,
 }
 
-const LIGHT_RAYS: Handle<Shader> = weak_handle!("7adc19fe-7867-9234-c1b0-a152880aeca1");
+const LIGHT_RAYS: Handle<Shader> = uuid_handle!("7adc19fe-7867-9234-c1b0-a152880aeca1");
 
 impl LightRaysMaterial {
     fn new(text_entity: Entity) -> Self {
         Self {
-            texture: Some(TextAtlas::DEFAULT_IMAGE.clone_weak()),
+            texture: Some(TextAtlas::DEFAULT_IMAGE.clone()),
             translation: Vec4::ZERO,
             size: Vec4::new(DEFAULT_FONT_SIZE + 2., 0., 0., 0.),
             entity: text_entity,
@@ -6456,11 +6536,17 @@ fn sync_assets(type_registry: Res<AppTypeRegistry>) {
 #[derive(Component, Default)]
 pub struct SyncAssetHandles;
 
-#[derive(Event)]
-struct AssetHandlesAdded(Vec<UntypedAssetId>);
+#[derive(EntityEvent)]
+struct AssetsAdded {
+    entity: Entity,
+    assets: Vec<UntypedAssetId>,
+}
 
-#[derive(Event)]
-struct AssetHandlesRemoved(Vec<UntypedAssetId>);
+#[derive(EntityEvent)]
+struct AssetsRemoved {
+    entity: Entity,
+    assets: Vec<UntypedAssetId>,
+}
 
 #[allow(clippy::type_complexity)]
 fn sync_asset_handles(
@@ -6486,10 +6572,10 @@ fn sync_asset_handles(
                         });
                     }
                     if !added.is_empty() {
-                        world.trigger_targets(AssetHandlesAdded(added), ui_entity);
+                        world.trigger(AssetsAdded { entity: ui_entity, assets: added });
                     }
                     if !removed.is_empty() {
-                        world.trigger_targets(AssetHandlesRemoved(removed), ui_entity);
+                        world.trigger(AssetsRemoved { entity: ui_entity, assets: removed });
                     }
                     if let Ok(mut entity) = world.get_entity_mut(ui_entity) {
                         entity.remove::<SyncAssetHandlesOnce>();
@@ -6538,8 +6624,8 @@ pub(super) fn plugin(app: &mut App) {
     // SYNC_VISIBILITY_SYSTEM
     //     .set(app.register_system(sync_visibility))
     //     .expect("failed to initialize SYNC_VISIBILITY_SYSTEM");
-    if !app.is_plugin_added::<HaalkaPlugin>() {
-        app.add_plugins(HaalkaPlugin);
+    if !app.is_plugin_added::<HaalkaFuturesSignalsPlugin>() {
+        app.add_plugins(HaalkaFuturesSignalsPlugin);
     }
     bevy_asset::load_internal_asset!(app, LIGHT_RAYS, "light_rays.wgsl", Shader::from_wgsl);
     app.add_plugins(Material2dPlugin::<LightRaysMaterial>::default())
@@ -6586,7 +6672,7 @@ pub(super) fn plugin(app: &mut App) {
         )
         .init_resource::<FieldPathCache>()
         .add_observer(
-            |event: Trigger<RemoveTarget>, child_ofs: Query<&ChildOf>, mut commands: Commands| {
+            |event: On<RemoveTarget>, child_ofs: Query<&ChildOf>, mut commands: Commands| {
                 let &RemoveTarget { from } = event.event();
                 for ancestor in child_ofs.iter_ancestors(from) {
                     if let Ok(mut entity) = commands.get_entity(ancestor) {
@@ -6597,14 +6683,14 @@ pub(super) fn plugin(app: &mut App) {
             },
         )
         .add_observer(
-            |event: Trigger<UpdateAssetHandles>, mut asset_roots: Query<&mut AssetRoot>| {
+            |event: On<UpdateAssetHandles>, mut asset_roots: Query<&mut AssetRoot>| {
                 let UpdateAssetHandles { entity, handles } = event.event();
                 if let Ok(mut asset_root) = asset_roots.get_mut(*entity) {
                     asset_root.handles = handles.clone();
                 }
             },
         )
-        .add_observer(|_: Trigger<OnPointerUpFlush>, mut commands: Commands| {
+        .add_observer(|_: On<OnPointerUpFlush>, mut commands: Commands| {
             commands.queue(|world: &mut World| {
                 if let Some(mut handlers) = world.remove_resource::<OnPointerUpHandlers>() {
                     for mut handler in handlers.0.drain(..) {

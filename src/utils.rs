@@ -5,7 +5,7 @@ use bevy_ecs::{
 use bevy_math::prelude::*;
 use bevy_picking::prelude::*;
 use bevy_ui::prelude::*;
-use haalka::prelude::*;
+use haalka::futures_signals::prelude::*;
 
 // TODO: move to haalka ?
 #[macro_export]
@@ -87,19 +87,20 @@ pub fn sync_tooltip_position(
 ) -> impl FnOnce(RawHaalkaEl) -> RawHaalkaEl {
     move |el| {
         el.observe(
-            |event: Trigger<Pointer<Enter>>, mut inspector_ancestor: InspectorAncestor, mut commands: Commands| {
-                if let Some(inspector) = inspector_ancestor.get(event.target())
+            |event: On<Pointer<Enter>>, mut inspector_ancestor: InspectorAncestor, mut commands: Commands| {
+                if let Some(inspector) = inspector_ancestor.get(event.entity)
                     && let Ok(mut entity) = commands.get_entity(inspector)
                 {
                     entity.try_insert(TooltipTargetPosition(event.event().pointer_location.position));
                 }
             },
         )
-        .on_event_with_system::<Pointer<Move>, _>(
-            move |In((entity, move_)): In<(Entity, Pointer<Move>)>,
+        .observe(
+            move |move_: On<Pointer<Move>>,
                   mut move_tooltip_to_position: MoveTooltipToPosition,
                   mut inspector_ancestor: InspectorAncestor,
                   mut commands: Commands| {
+                let entity = move_.entity;
                 move_tooltip_to_position.move_(entity, move_.pointer_location.position, Some(expected_tooltip_height));
                 if let Some(inspector) = inspector_ancestor.get(entity)
                     && let Ok(mut entity) = commands.get_entity(inspector)

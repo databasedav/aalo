@@ -5,7 +5,7 @@ use bevy_color::prelude::*;
 use bevy_ecs::{prelude::*, system::SystemId};
 use bevy_text::prelude::*;
 use bevy_ui::prelude::*;
-use haalka::{prelude::*, raw::utils::remove_system_holder_on_remove};
+use haalka::futures_signals::{prelude::*, raw::utils::remove_system_holder_on_remove};
 use std::{
     fmt::Display,
     sync::{Arc, OnceLock},

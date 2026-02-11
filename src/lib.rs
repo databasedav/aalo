@@ -1,8 +1,10 @@
+#![allow(deprecated)]
+
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_ui::prelude::*;
 use bevy_utils::prelude::*;
-use haalka::prelude::*;
+use haalka::futures_signals::prelude::*;
 use std::sync::{Arc, Mutex};
 
 pub mod defaults;
