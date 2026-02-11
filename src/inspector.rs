@@ -16,8 +16,8 @@ use bevy_camera::{RenderTarget, prelude::*, visibility::RenderLayers};
 use bevy_color::{self, prelude::*};
 use bevy_derive::*;
 use bevy_ecs::{
-    archetype::Archetypes, component::*, entity::Entities, lifecycle::HookContext, prelude::*, system::*,
-    world::DeferredWorld,
+    archetype::Archetypes, component::*, entity::Entities, lifecycle::HookContext, observer::ObservedBy, prelude::*,
+    system::*, world::DeferredWorld,
 };
 use bevy_image::Image;
 use bevy_input::{mouse::MouseWheel, prelude::*};
@@ -62,9 +62,6 @@ use strum::{Display, EnumIter, IntoEnumIterator};
 use super::{defaults::*, globals::*, reflect::*, style::*, utils::*, widgets::*};
 use crate::{impl_syncers, signal_or};
 
-// TODO: filter out text input observers, e.g. they get added to the entity list when the
-// search/targeting is brought up
-//
 // TODO: normalize "box" element sizing, e.g. dropdown buttons and text inputs should have the same
 // height(?)
 //
@@ -387,6 +384,9 @@ fn continue_bloodline(mut world: DeferredWorld, HookContext { entity, .. }: Hook
 #[derive(Component)]
 #[component(on_add = continue_bloodline)]
 pub struct InspectorBloodline;
+
+#[derive(Component)]
+struct AaloTextInputObserver;
 
 fn propagate_inspector_bloodline(
     data: Query<&Children, (With<InspectorBloodline>, Changed<Children>)>,
@@ -4385,7 +4385,17 @@ impl Default for TextInputAlignmentWrapper {
     fn default() -> Self {
         Self {
             el: El::<Node>::new(),
-            text_input: TextInput::new().align(Align::new().center_y()),
+            text_input: TextInput::new().align(Align::new().center_y()).update_raw_el(|raw_el| {
+                raw_el.on_spawn(|world, entity| {
+                    if let Some(observed_by) = world.get::<ObservedBy>(entity) {
+                        for observer_entity in observed_by.get().to_vec() {
+                            if let Ok(mut entity) = world.get_entity_mut(observer_entity) {
+                                entity.insert(AaloTextInputObserver);
+                            }
+                        }
+                    }
+                })
+            }),
         }
     }
 }
@@ -5026,6 +5036,7 @@ fn sync_orphan_entities(
             Without<HaalkaOneShotSystem>,
             Without<HaalkaObserver>,
             Without<AaloOneShotSystem>,
+            Without<AaloTextInputObserver>,
         ),
     >,
     debug_names: Query<NameOrEntity>,
@@ -5043,6 +5054,7 @@ fn sync_entities(
             Without<HaalkaObserver>,
             Without<AaloOneShotSystem>,
             Without<InspectorBloodline>,
+            Without<AaloTextInputObserver>,
         ),
     >,
     debug_names: Query<NameOrEntity>,
