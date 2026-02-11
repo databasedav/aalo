@@ -11,34 +11,34 @@ repository = "https://github.com/databasedav/aalo"
 documentation = "https://docs.rs/aalo"
 
 [dependencies]
-bevy_app = "0.17"
-bevy_asset = "0.17"
-bevy_camera = "0.17"
-bevy_color = "0.17"
-bevy_core_pipeline = "0.17"
-bevy_derive = "0.17"
-bevy_ecs = "0.17"
-bevy_image = "0.17"
-bevy_input = "0.17"
-bevy_log = "0.17"
-bevy_math = "0.17"
-bevy_mesh = "0.17"
-bevy_picking = "0.17"
-bevy_platform = "0.17"
-bevy_reflect = "0.17"
-bevy_render = "0.17"
-bevy_shader = "0.17"
-bevy_sprite = "0.17"
-bevy_sprite_render = "0.17"
-bevy_tasks = "0.17"
-bevy_text = { version = "0.17", features = ["default_font"] }
-bevy_time = "0.17"
-bevy_transform = "0.17"
-bevy_ui = "0.17"
-bevy_utils = "0.17"
-bevy_window = "0.17"
-bevy_input_focus = "0.17"
-cosmic-text = "0.14.2"
+bevy_app = "0.18"
+bevy_asset = "0.18"
+bevy_camera = "0.18"
+bevy_color = "0.18"
+bevy_core_pipeline = "0.18"
+bevy_derive = "0.18"
+bevy_ecs = "0.18"
+bevy_image = "0.18"
+bevy_input = "0.18"
+bevy_log = "0.18"
+bevy_math = "0.18"
+bevy_mesh = "0.18"
+bevy_picking = "0.18"
+bevy_platform = "0.18"
+bevy_reflect = "0.18"
+bevy_render = "0.18"
+bevy_shader = "0.18"
+bevy_sprite = "0.18"
+bevy_sprite_render = "0.18"
+bevy_tasks = "0.18"
+bevy_text = { version = "0.18", features = ["default_font"] }
+bevy_time = "0.18"
+bevy_transform = "0.18"
+bevy_ui = "0.18"
+bevy_utils = "0.18"
+bevy_window = "0.18"
+bevy_input_focus = "0.18"
+cosmic-text = "0.16"
 cfg-if = "1.0"
 # haalka = { version = "0.6", default-features = false, features = ["futures_signals_text_input"] }
 haalka = { git = "https://github.com/databasedav/haalka", branch = "bevy_0.18", default-features = false, features = ["futures_signals_text_input"] }
@@ -47,7 +47,7 @@ paste = "1.0"
 nucleo-matcher = "0.3"
 strum = { version = "0.27", features = ["derive"] }
 num = "0.4"
-bevy_rich_text3d = { version = "0.5", default-features = false, features = ["2d"] }
+bevy_rich_text3d = { version = "0.6", default-features = false, features = ["2d"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = ["Window", "Navigator"] }
@@ -58,7 +58,7 @@ deployed_wasm_example = []
 debug = ["haalka/debug"]
 
 [dev-dependencies]
-bevy = "0.17"
+bevy = "0.18"
 
 [[example]]
 name = "custom"
