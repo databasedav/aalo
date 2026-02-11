@@ -16,8 +16,8 @@ use bevy_camera::{RenderTarget, prelude::*, visibility::RenderLayers};
 use bevy_color::{self, prelude::*};
 use bevy_derive::*;
 use bevy_ecs::{
-    archetype::Archetypes, component::*, entity::Entities, lifecycle::HookContext, prelude::*, system::*,
-    world::DeferredWorld,
+    archetype::Archetypes, component::*, entity::Entities, lifecycle::HookContext, observer::ObservedBy, prelude::*,
+    system::*, world::DeferredWorld,
 };
 use bevy_image::Image;
 use bevy_input::{mouse::MouseWheel, prelude::*};
@@ -29,7 +29,7 @@ use bevy_picking::prelude::*;
 use bevy_platform::sync::LazyLock;
 use bevy_reflect::{prelude::*, *};
 use bevy_render::render_resource::AsBindGroup;
-use bevy_rich_text3d::{GlyphMeta, LoadFonts, Text3d, Text3dPlugin, Text3dStyling, TextAtlas};
+use bevy_rich_text3d::{GlyphMeta, LoadFonts, Text3d, Text3dPlugin, Text3dStyling, TextAtlas, Weight};
 use bevy_shader::{Shader, ShaderRef};
 use bevy_sprite_render::{AlphaMode2d, Material2d, Material2dPlugin, prelude::*};
 use bevy_text::*;
@@ -38,7 +38,7 @@ use bevy_transform::prelude::*;
 use bevy_ui::prelude::*;
 use bevy_utils::prelude::*;
 use bevy_window::{PrimaryWindow, Window, WindowRef};
-use cosmic_text::{Action, Edit, Motion, Selection, Weight};
+use cosmic_text::{Action, Edit, Motion, Selection};
 use disqualified::ShortName;
 use haalka::futures_signals::{
     align::AlignabilityFacade,
@@ -62,9 +62,6 @@ use strum::{Display, EnumIter, IntoEnumIterator};
 use super::{defaults::*, globals::*, reflect::*, style::*, utils::*, widgets::*};
 use crate::{impl_syncers, signal_or};
 
-// TODO: filter out text input observers, e.g. they get added to the entity list when the
-// search/targeting is brought up
-//
 // TODO: normalize "box" element sizing, e.g. dropdown buttons and text inputs should have the same
 // height(?)
 //
@@ -388,6 +385,9 @@ fn continue_bloodline(mut world: DeferredWorld, HookContext { entity, .. }: Hook
 #[component(on_add = continue_bloodline)]
 pub struct InspectorBloodline;
 
+#[derive(Component)]
+struct AaloTextInputObserver;
+
 fn propagate_inspector_bloodline(
     data: Query<&Children, (With<InspectorBloodline>, Changed<Children>)>,
     mut commands: Commands,
@@ -504,7 +504,7 @@ fn forward_aalo_text_visibility(
 fn sync_aalo_text_position(
     aalo_texts: Query<(Entity, &AaloText, &UiGlobalTransform)>,
     primary_window: Single<Entity, With<PrimaryWindow>>,
-    aalo_camera: Single<&Camera, With<AaloTextCamera>>,
+    aalo_render_target: Single<&RenderTarget, With<AaloTextCamera>>,
     windows: Query<&Window>,
     changed_transforms: Query<Entity, (With<AaloText>, Changed<UiGlobalTransform>)>,
     changed_windows: Query<Entity, (With<Window>, Changed<Window>)>,
@@ -515,8 +515,8 @@ fn sync_aalo_text_position(
         return;
     }
 
-    if let RenderTarget::Window(window) = aalo_camera.target {
-        let window_entity = match window {
+    if let RenderTarget::Window(window) = *aalo_render_target {
+        let window_entity = match *window {
             WindowRef::Primary => *primary_window,
             WindowRef::Entity(entity) => entity,
         };
@@ -1342,7 +1342,7 @@ impl ElementWrapper for Inspector {
                                                     Text3d::new("aalo"),
                                                     Text3dStyling {
                                                         font: "FiraMono".into(),
-                                                        weight: Weight::MEDIUM.into(),
+                                                        weight: Weight::MEDIUM,
                                                         size: DEFAULT_FONT_SIZE + 2.,
                                                         uv1: (GlyphMeta::RowX, GlyphMeta::ColY),
                                                         ..Default::default()
@@ -1789,7 +1789,7 @@ impl ElementWrapper for Inspector {
                             El::<Node>::new()
                             .hovered_sync(thumb_hovered.clone())
                             .align(Align::new().right())
-                            .border_radius(BorderRadius::MAX)
+                            .with_node(|mut node| node.border_radius = BorderRadius::MAX)
                             .apply(height_style(scrollbar_height_option.signal().map_option(Val::Px, || Val::Auto)))
                             .apply(width_style(width.signal().map(Val::Px)))
                             .background_color_signal(
@@ -2134,13 +2134,13 @@ impl ElementWrapper for Inspector {
                 }))
                 .align_content(Align::center())
                 .global_z_index(GlobalZIndex(z_order("tooltip")))
-                .with_node(clone!((padding, border_width) move |mut node| {
+                .with_node(clone!((padding, border_width, border_radius) move |mut node| {
                     node.position_type = PositionType::Absolute;
                     // TODO: without setting these statically on spawn, the signals cause the text to noticably jump as the tooltip spawns
                     node.padding = UiRect::all(Val::Px(padding.get() / 2.));
                     node.border = UiRect::all(Val::Px(border_width.get()));
+                    node.border_radius = BorderRadius::all(Val::Px(border_radius.get()));
                 }))
-                .border_radius(BorderRadius::all(Val::Px(border_radius.get())))
                 .apply(padding_style(BoxEdge::ALL, padding.signal().map(div(2.))))
                 .apply(border_width_style(BoxEdge::ALL, border_width.signal()))
                 .apply(border_color_style(border_color.signal()))
@@ -2593,8 +2593,8 @@ fn header_wrapper<E: Element, Marker>(
                     .with_node(|mut node| {
                         node.width = Val::Percent(100.);
                         node.height = Val::Px(SHADOW_HEIGHT);
+                        node.border_radius = BorderRadius::top(Val::Px(f32::MAX));
                     })
-                    .border_radius(BorderRadius::top(Val::Px(f32::MAX)))
                     .with_node(|mut node| {
                         node.position_type = PositionType::Absolute;
                         node.top = Val::Percent(100.);
@@ -2647,7 +2647,7 @@ fn entity_header(
     .highlighted_color_signal(highlighted_color.signal())
     .unhighlighted_color_signal(unhighlighted_color.signal())
     .update_raw_el(move |raw_el| raw_el.on_spawn_with_system(move |In(_), entities: &Entities, archetypes: &Archetypes, components: &Components| {
-        if let Some(location) = entities.get(entity)
+        if let Ok(Some(location)) = entities.get(entity)
             && let Some(archetype) = archetypes.get(location.archetype_id) {
                 // from bevy-inspector-egui https://github.com/jakobhellermann/bevy-inspector-egui/blob/b54c53046f6765aa893c975dcea00e28468d922f/crates/bevy_inspector_egui/src/utils.rs#L56-L69
                 let associations = &[
@@ -3157,12 +3157,14 @@ fn field_header(
     )
     .item_signal(
         if let Some(FieldType::Field(type_path)) = field_type {
-            hovered.signal()
-            .map_true(clone!((type_path_color, type_path) move || {
+            always(Some(
                 DynamicText::new()
                 .text(type_path.clone())
                 .color_signal(type_path_color.signal())
-            }))
+                .update_raw_el(|raw_el| raw_el.component_signal(
+                  hovered.signal().dedupe().map_bool(|| Visibility::Inherited, || Visibility::Hidden)
+                ))
+            ))
             .boxed()
         } else {
             type_path.signal_cloned().map_some(clone!((hovered, type_path_color) move |type_path| {
@@ -3172,7 +3174,7 @@ fn field_header(
             }))
             .boxed()
         }
-        .map(|el_option| el_option.map(text_no_wrap))
+        .map_some(text_no_wrap)
     )
 }
 
@@ -4383,7 +4385,17 @@ impl Default for TextInputAlignmentWrapper {
     fn default() -> Self {
         Self {
             el: El::<Node>::new(),
-            text_input: TextInput::new().align(Align::new().center_y()),
+            text_input: TextInput::new().align(Align::new().center_y()).update_raw_el(|raw_el| {
+                raw_el.on_spawn(|world, entity| {
+                    if let Some(observed_by) = world.get::<ObservedBy>(entity) {
+                        for observer_entity in observed_by.get().to_vec() {
+                            if let Ok(mut entity) = world.get_entity_mut(observer_entity) {
+                                entity.insert(AaloTextInputObserver);
+                            }
+                        }
+                    }
+                })
+            }),
         }
     }
 }
@@ -4483,9 +4495,7 @@ where
                     style.selection_color = color
                 })
                 .with_text_input_style(|mut style| style.cursor_width = 1.)
-                .with_text_font(|mut text_font| {
-                    text_font.line_height = LineHeight::RelativeToFont(TEXT_INPUT_RELATIVE_LINE_HEIGHT)
-                })
+                .line_height(LineHeight::RelativeToFont(TEXT_INPUT_RELATIVE_LINE_HEIGHT))
                 .on_signal_with_text_font(font_size.signal(), |mut text_font, font_size| {
                     text_font.font_size = font_size
                 })
@@ -5026,6 +5036,7 @@ fn sync_orphan_entities(
             Without<HaalkaOneShotSystem>,
             Without<HaalkaObserver>,
             Without<AaloOneShotSystem>,
+            Without<AaloTextInputObserver>,
         ),
     >,
     debug_names: Query<NameOrEntity>,
@@ -5043,6 +5054,7 @@ fn sync_entities(
             Without<HaalkaObserver>,
             Without<AaloOneShotSystem>,
             Without<InspectorBloodline>,
+            Without<AaloTextInputObserver>,
         ),
     >,
     debug_names: Query<NameOrEntity>,
@@ -5059,7 +5071,7 @@ fn sync_components(
     mut commands: Commands,
 ) {
     for (ui_entity, mut entity_root) in entity_roots.iter_mut() {
-        if let Some(location) = entities.get(entity_root.entity)
+        if let Ok(Some(location)) = entities.get(entity_root.entity)
             && let Some(archetype) = archetypes.get(location.archetype_id)
         {
             let new = archetype.components().iter().copied().collect::<HashSet<_>>();
