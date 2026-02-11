@@ -2930,6 +2930,7 @@ dependencies = [
 [[package]]
 name = "haalka"
 version = "0.6.0"
+source = "git+https://github.com/databasedav/haalka?branch=bevy_0.18#e31a1fecfae442cb9224c30a1e67fcffabc1dd4c"
 dependencies = [
  "apply",
  "async-io",
@@ -2971,6 +2972,7 @@ dependencies = [
 [[package]]
 name = "haalka_futures_signals_ext"
 version = "0.0.3"
+source = "git+https://github.com/databasedav/haalka?branch=bevy_0.18#e31a1fecfae442cb9224c30a1e67fcffabc1dd4c"
 dependencies = [
  "futures-signals",
  "haalka_futures_util_ext",
@@ -2980,6 +2982,7 @@ dependencies = [
 [[package]]
 name = "haalka_futures_util_ext"
 version = "0.0.1"
+source = "git+https://github.com/databasedav/haalka?branch=bevy_0.18#e31a1fecfae442cb9224c30a1e67fcffabc1dd4c"
 dependencies = [
  "futures-util",
  "pin-project",
@@ -3560,9 +3563,9 @@ checksum = "610a5acd306ec67f907abe5567859a3c693fb9886eb1f012ab8f2a47bef3db51"
 
 [[package]]
 name = "ntapi"
-version = "0.4.2"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c70f219e21142367c70c0b30c6a9e3a14d55b4d12a204d897fbec83a0363f081"
+checksum = "c3b335231dfd352ffb0f8017f3b6027a4917f7df785ea2143d8af2adc66980ae"
 dependencies = [
  "winapi",
 ]
@@ -4043,9 +4046,9 @@ dependencies = [
 
 [[package]]
 name = "ordered-float"
-version = "5.0.0"
+version = "5.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2c1f9f56e534ac6a9b8a4600bdf0f530fb393b5f393e7b4d03489c3cf0c3f01"
+checksum = "7f4779c6901a562440c3786d08192c6fbda7c1c2060edd10006b05ee35d10f2d"
 dependencies = [
  "num-traits",
 ]
@@ -5025,9 +5028,9 @@ dependencies = [
 
 [[package]]
 name = "toml_parser"
-version = "1.0.6+spec-1.1.0"
+version = "1.0.7+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3198b4b0a8e11f09dd03e133c0280504d0801269e9afa46362ffde1cbeebf44"
+checksum = "247eaa3197818b831697600aadf81514e577e0cba5eab10f7e064e78ae154df1"
 dependencies = [
  "winnow",
 ]
